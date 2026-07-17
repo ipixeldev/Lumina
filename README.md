@@ -18,7 +18,7 @@
 </picture>
 
 > [!IMPORTANT]
-> MirrorBridge is in early development. Phases 1–3 are implemented: the app can inspect the Mac developer environment and discover a connected physical iPhone using structured Apple tooling. It does **not yet build WebDriverAgent, install an automation runner, mirror a screen, or send control commands**. Follow the [implementation plan](Documentation/IMPLEMENTATION_PLAN.md) for current scope and progress.
+> MirrorBridge is in early development. The app can inspect the Mac developer environment and discover a connected physical iPhone using structured Apple tooling. It does **not yet build WebDriverAgent, install an automation runner, mirror a screen, or send control commands**.
 
 ## What MirrorBridge is
 
@@ -83,8 +83,6 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Screenshot mirroring with bounded buffers and adaptive polling
 - Coordinate mapping, mouse gestures, trackpad input, and keyboard input
 - Recovery, redacted diagnostics, and release packaging
-
-The detailed phase gates are documented in [Documentation/IMPLEMENTATION_PLAN.md](Documentation/IMPLEMENTATION_PLAN.md).
 
 ## Requirements
 
@@ -180,7 +178,7 @@ Lumina/
 └── Assets.xcassets/
 LuminaTests/               Swift Testing unit and structured-fixture tests
 LuminaUITests/             XCUITest app and opt-in physical-device coverage
-Documentation/             Architecture and implementation plan
+Documentation/Images/      README screenshots
 ```
 
 Folders for automation, transport, mirroring, input, and security will be introduced only when they contain real, tested implementations.
@@ -214,7 +212,7 @@ The finished product will still be constrained by Apple's developer automation s
 
 Contributions are welcome once the repository has an explicit open-source license.
 
-1. Read the [implementation plan](Documentation/IMPLEMENTATION_PLAN.md) and select an unfinished phase-sized issue.
+1. Select a focused issue that can be implemented and verified independently.
 2. Fork the repository and create a focused branch.
 3. Keep visual and control channels separate.
 4. Do not add fake production implementations, private Apple APIs, hard-coded signing data, or unsupported capability claims.
