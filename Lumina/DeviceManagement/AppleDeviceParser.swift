@@ -33,10 +33,13 @@ nonisolated enum AppleDeviceParser {
             case "disabled": .disabled
             default: .unknown
             }
-            var developerConnectionHosts = source.connectionProperties.potentialHostnames ?? []
-            if let tunnelAddress = source.connectionProperties.tunnelIPAddress,
-               !developerConnectionHosts.contains(tunnelAddress) {
+            var developerConnectionHosts: [String] = []
+            if let tunnelAddress = source.connectionProperties.tunnelIPAddress {
                 developerConnectionHosts.append(tunnelAddress)
+            }
+            for hostname in source.connectionProperties.potentialHostnames ?? []
+            where !developerConnectionHosts.contains(hostname) {
+                developerConnectionHosts.append(hostname)
             }
 
             return Device(

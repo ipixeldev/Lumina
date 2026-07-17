@@ -12,9 +12,15 @@ final class LuminaUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    private func testApplication() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["LUMINA_DISABLE_AUTOSTART"] = "1"
+        return app
+    }
+
     @MainActor
     func testEnvironmentCheckProducesRealResults() throws {
-        let app = XCUIApplication()
+        let app = testApplication()
         app.launch()
 
         let setupButton = app.buttons["Set up an iPhone"]
@@ -34,7 +40,7 @@ final class LuminaUITests: XCTestCase {
     /// Manual integration test: requires a trusted physical iPhone connected by USB.
     @MainActor
     func testConnectedPhysicalIPhoneIsDiscovered() throws {
-        let app = XCUIApplication()
+        let app = testApplication()
         app.launch()
 
         let setupButton = app.buttons["Set up an iPhone"]
@@ -54,7 +60,7 @@ final class LuminaUITests: XCTestCase {
     @MainActor
     func testLaunchPerformance() throws {
         measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
+            testApplication().launch()
         }
     }
 }

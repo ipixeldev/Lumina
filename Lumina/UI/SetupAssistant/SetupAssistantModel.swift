@@ -26,6 +26,7 @@ final class SetupAssistantModel {
     private var deviceMonitorTask: Task<Void, Never>?
     private var runnerBuildTask: Task<Void, Never>?
     private var runnerSetupTask: Task<Void, Never>?
+    private var automaticStartAttemptedDeviceID: String?
 
     init(
         stateMachine: ApplicationStateMachine,
@@ -153,55 +154,32 @@ final class SetupAssistantModel {
     }
 
     func buildRunner() {
-        guard runnerBuildTask == nil,
-              let sourceURL = webDriverAgentSourceURL,
-              let device = selectedBuildDevice,
-              let certificate = selectedSigningIdentity,
-              let teamIdentifier = certificate.teamID,
-              let bundleIdentifier = runnerBundleIdentifier else { return }
+        startRunnerBuild(reuseCache: false, continueAutomatically: false)
+    }
 
-        let cachesURL: URL
-        do {
-            cachesURL = try FileManager.default.url(
-                for: .cachesDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            ).appendingPathComponent("Lumina/WebDriverAgent", isDirectory: true)
-        } catch {
-            runnerBuildIssue = RunnerBuildIssue(
-                code: "LUM-BUILD-009",
-                title: "Build storage is unavailable",
-                explanation: "Lumina could not prepare its local runner build directory.",
-                recovery: "Check available disk space and folder permissions, then retry.",
-                retryIsSafe: true
-            )
-            return
-        }
-
-        let configuration = RunnerBuildConfiguration(
-            sourceURL: sourceURL,
-            deviceIdentifier: device.id,
-            teamIdentifier: teamIdentifier,
-            bundleIdentifier: bundleIdentifier,
-            derivedDataURL: cachesURL.appendingPathComponent("DerivedData", isDirectory: true),
-            resultBundleURL: cachesURL.appendingPathComponent("BuildResult.xcresult", isDirectory: true),
-            allowProvisioningUpdates: true
-        )
+    private func startRunnerBuild(reuseCache: Bool, continueAutomatically: Bool) {
+        guard runnerBuildTask == nil, let configuration = runnerBuildConfiguration() else { return }
         runnerBuildIssue = nil
         runnerBuildResult = nil
         guard transitionToBuilding() else { return }
-        logger.info("WebDriverAgent build started", category: .build)
+        logger.info(reuseCache ? "Looking for a reusable signed runner" : "WebDriverAgent build started", category: .build)
 
         runnerBuildTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let result = try await runnerBuilder.build(configuration: configuration)
+                let cached = reuseCache ? try await runnerBuilder.cachedBuild(configuration: configuration) : nil
+                let result: RunnerBuildResult
+                if let cached {
+                    result = cached
+                } else {
+                    result = try await runnerBuilder.build(configuration: configuration)
+                }
                 try Task.checkCancellation()
                 runnerBuildResult = result
                 runnerBuildTask = nil
                 try stateMachine.transition(to: .runnerBuilt)
-                logger.info("WebDriverAgent build and signature verification completed", category: .build)
+                logger.info(cached == nil ? "WebDriverAgent build and signature verification completed" : "Reusable signed runner verified", category: .build)
+                if continueAutomatically { installAndLaunchRunner() }
             } catch is CancellationError {
                 runnerBuildTask = nil
                 transitionIfPossible(to: .runnerNotInstalled, category: .build)
@@ -239,14 +217,19 @@ final class SetupAssistantModel {
         )
         runnerConnection = nil
         runnerSetupIssue = nil
-        guard transitionIfPossible(to: .runnerInstalling(progress: nil), category: .build) else { return }
-        logger.info("WebDriverAgent installation started", category: .build)
-
         runnerSetupTask = Task { [weak self] in
             guard let self else { return }
             do {
-                try await runnerSetupManager.install(configuration: configuration)
-                try Task.checkCancellation()
+                let installed = await runnerSetupManager.isInstalled(configuration: configuration)
+                if !installed {
+                    guard transitionIfPossible(to: .runnerInstalling(progress: nil), category: .build) else {
+                        runnerSetupTask = nil
+                        return
+                    }
+                    logger.info("WebDriverAgent installation started", category: .build)
+                    try await runnerSetupManager.install(configuration: configuration)
+                    try Task.checkCancellation()
+                }
                 guard transitionIfPossible(to: .runnerLaunching, category: .build) else {
                     runnerSetupTask = nil
                     runnerSetupManager.stop()
@@ -306,12 +289,13 @@ final class SetupAssistantModel {
     }
 
     private var selectedBuildDevice: Device? {
-        deviceSnapshot?.devices.first {
-            $0.connectionTransport == .usb &&
+        let readyDevices = deviceSnapshot?.devices.filter {
                 $0.pairingState == .paired &&
                 $0.developerModeState == .enabled &&
                 $0.lockState != .locked
-        }
+        } ?? []
+        return readyDevices.first(where: { $0.connectionTransport == .usb })
+            ?? readyDevices.first(where: { $0.connectionTransport == .wifi })
     }
 
     private var selectedSigningIdentity: DeveloperCertificateIdentity? {
@@ -320,7 +304,7 @@ final class SetupAssistantModel {
 
     private func transitionToBuilding() -> Bool {
         do {
-            if stateMachine.state == .deviceConnectedUSB {
+            if stateMachine.state == .deviceConnectedUSB || stateMachine.state == .deviceConnectedWiFi {
                 try stateMachine.transition(to: .devicePreparing)
                 try stateMachine.transition(to: .runnerNotInstalled)
             }
@@ -354,8 +338,10 @@ final class SetupAssistantModel {
                 nextState = .deviceLocked
             } else if device.connectionTransport == .usb {
                 nextState = .deviceConnectedUSB
+            } else if device.connectionTransport == .wifi {
+                nextState = .deviceConnectedWiFi
             } else {
-                nextState = .requiresUserAction(message: "Connect this iPhone by USB for initial setup.")
+                nextState = .requiresUserAction(message: "The iPhone is paired but its developer connection is not ready.")
             }
         } else {
             nextState = .noDevice
@@ -366,6 +352,52 @@ final class SetupAssistantModel {
             try stateMachine.transition(to: nextState)
         } catch {
             logger.error("Device discovery could not update the application state", category: .device)
+        }
+        beginAutomaticSetupIfNeeded()
+    }
+
+    private func beginAutomaticSetupIfNeeded() {
+        guard ProcessInfo.processInfo.environment["LUMINA_DISABLE_AUTOSTART"] != "1",
+              let device = selectedBuildDevice,
+              automaticStartAttemptedDeviceID != device.id,
+              runnerBuildTask == nil,
+              runnerSetupTask == nil,
+              stateMachine.state == .deviceConnectedUSB || stateMachine.state == .deviceConnectedWiFi else { return }
+        automaticStartAttemptedDeviceID = device.id
+        startRunnerBuild(reuseCache: true, continueAutomatically: true)
+    }
+
+    private func runnerBuildConfiguration() -> RunnerBuildConfiguration? {
+        guard let sourceURL = webDriverAgentSourceURL,
+              let device = selectedBuildDevice,
+              let certificate = selectedSigningIdentity,
+              let teamIdentifier = certificate.teamID,
+              let bundleIdentifier = runnerBundleIdentifier else { return nil }
+        do {
+            let cachesURL = try FileManager.default.url(
+                for: .cachesDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            ).appendingPathComponent("Lumina/WebDriverAgent", isDirectory: true)
+            return RunnerBuildConfiguration(
+                sourceURL: sourceURL,
+                deviceIdentifier: device.id,
+                teamIdentifier: teamIdentifier,
+                bundleIdentifier: bundleIdentifier,
+                derivedDataURL: cachesURL.appendingPathComponent("DerivedData", isDirectory: true),
+                resultBundleURL: cachesURL.appendingPathComponent("BuildResult.xcresult", isDirectory: true),
+                allowProvisioningUpdates: true
+            )
+        } catch {
+            runnerBuildIssue = RunnerBuildIssue(
+                code: "LUM-BUILD-009",
+                title: "Build storage is unavailable",
+                explanation: "Lumina could not prepare its local runner build directory.",
+                recovery: "Check available disk space and folder permissions, then retry.",
+                retryIsSafe: true
+            )
+            return nil
         }
     }
 }

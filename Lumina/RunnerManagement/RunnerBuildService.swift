@@ -2,6 +2,7 @@ import Foundation
 
 nonisolated protocol RunnerBuilding: Sendable {
     func build(configuration: RunnerBuildConfiguration) async throws -> RunnerBuildResult
+    func cachedBuild(configuration: RunnerBuildConfiguration) async throws -> RunnerBuildResult?
 }
 
 nonisolated struct RunnerBuildService: RunnerBuilding {
@@ -66,6 +67,38 @@ nonisolated struct RunnerBuildService: RunnerBuilding {
             resultBundleURL: configuration.resultBundleURL,
             bundleIdentifier: signedIdentifier,
             duration: duration,
+            signature: signature
+        )
+    }
+
+    func cachedBuild(configuration: RunnerBuildConfiguration) async throws -> RunnerBuildResult? {
+        try validate(configuration)
+        let productURL = configuration.derivedDataURL
+            .appendingPathComponent("Build/Products/Debug-iphoneos/WebDriverAgentRunner-Runner.app", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: productURL.path) else { return nil }
+        let xctestrunURL: URL
+        do {
+            xctestrunURL = try locateXCTestRun(in: configuration.derivedDataURL)
+        } catch {
+            return nil
+        }
+        let signedIdentifier = configuration.bundleIdentifier + ".xctrunner"
+        let signature: RunnerCodeSignature
+        do {
+            signature = try signatureVerifier.verify(
+                appURL: productURL,
+                expectedTeamIdentifier: configuration.teamIdentifier,
+                expectedBundleIdentifier: signedIdentifier
+            )
+        } catch {
+            return nil
+        }
+        return RunnerBuildResult(
+            productURL: productURL,
+            xctestrunURL: xctestrunURL,
+            resultBundleURL: configuration.resultBundleURL,
+            bundleIdentifier: signedIdentifier,
+            duration: .zero,
             signature: signature
         )
     }

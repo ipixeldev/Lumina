@@ -7,31 +7,24 @@ struct DeviceControlView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbar
-            Divider()
             if model.isConnected, let data = model.screenshotData, let image = NSImage(data: data) {
-                GeometryReader { proxy in
-                    let frame = aspectFit(imageSize: image.size, in: proxy.size)
-                    Image(nsImage: image)
-                        .resizable()
-                        .interpolation(.none)
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: frame.width, height: frame.height)
-                        .contentShape(Rectangle())
-                        .gesture(deviceGesture(displaySize: frame))
-                        .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                        .shadow(color: .black.opacity(0.25), radius: 24, y: 10)
-                }
-                .padding(28)
-                .background(Color(nsColor: .windowBackgroundColor))
+                let displaySize = fittedDeviceSize(for: image.size)
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: displaySize.width, height: displaySize.height)
+                    .contentShape(Rectangle())
+                    .gesture(deviceGesture(displaySize: displaySize))
             } else {
                 ContentUnavailableView(
                     "No active iPhone session",
                     systemImage: "iphone.slash",
                     description: Text("Complete Setup Assistant to connect Lumina to your iPhone.")
                 )
+                .frame(width: 390, height: 700)
             }
         }
-        .navigationTitle("Device Control")
+        .background(.black)
         .onAppear {
             if model.isConnected { model.startStreaming() }
         }
@@ -39,17 +32,7 @@ struct DeviceControlView: View {
     }
 
     private var toolbar: some View {
-        HStack(spacing: 12) {
-            Button { model.goHome() } label: {
-                Label("Home", systemImage: "house")
-            }
-            .disabled(!model.isConnected)
-            Button { model.refresh() } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
-            }
-            .disabled(!model.isConnected)
-
-            Divider().frame(height: 20)
+        HStack(spacing: 10) {
             if let app = model.activeApplication {
                 Text(applicationName(app))
                     .lineLimit(1)
@@ -69,9 +52,27 @@ struct DeviceControlView: View {
                 Label("Connected", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
             }
+            Menu {
+                Button { model.goHome() } label: { Label("Home", systemImage: "house") }
+                Button { model.volumeUp() } label: { Label("Volume Up", systemImage: "speaker.plus") }
+                Button { model.volumeDown() } label: { Label("Volume Down", systemImage: "speaker.minus") }
+                Divider()
+                Button { model.wakeOrUnlock() } label: { Label("Wake or Unlock", systemImage: "lock.open") }
+                Button { model.lockScreen() } label: { Label("Lock Screen", systemImage: "lock") }
+                Button { model.rotate() } label: { Label("Rotate", systemImage: "rotate.right") }
+                Divider()
+                Button { model.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title3)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .disabled(!model.isConnected)
         }
-        .padding(.horizontal, 16)
-        .frame(height: 52)
+        .padding(.horizontal, 12)
+        .frame(height: 44)
+        .background(.bar)
     }
 
     private func deviceGesture(displaySize: CGSize) -> some Gesture {
@@ -97,10 +98,12 @@ struct DeviceControlView: View {
         )
     }
 
-    private func aspectFit(imageSize: CGSize, in container: CGSize) -> CGSize {
-        guard imageSize.width > 0, imageSize.height > 0 else { return .zero }
-        let scale = min(container.width / imageSize.width, container.height / imageSize.height)
-        return CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+    private func fittedDeviceSize(for imageSize: CGSize) -> CGSize {
+        guard imageSize.width > 0, imageSize.height > 0 else { return CGSize(width: 390, height: 700) }
+        let visible = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1440, height: 900)
+        let maximum = CGSize(width: visible.width * 0.72, height: visible.height - 120)
+        let scale = min(1, maximum.width / imageSize.width, maximum.height / imageSize.height)
+        return CGSize(width: floor(imageSize.width * scale), height: floor(imageSize.height * scale))
     }
 
     private func applicationName(_ app: ActiveApplicationInfo) -> String {

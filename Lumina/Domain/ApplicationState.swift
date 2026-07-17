@@ -8,6 +8,7 @@ nonisolated enum ApplicationState: Equatable, Sendable {
     case certificateMissing
     case noDevice
     case deviceConnectedUSB
+    case deviceConnectedWiFi
     case deviceNeedsTrust
     case developerModeDisabled
     case devicePreparing
@@ -46,6 +47,8 @@ nonisolated enum ApplicationState: Equatable, Sendable {
             StatePresentation(title: "Connect an iPhone", explanation: "Connect an unlocked iPhone by USB to continue initial setup.", actions: [.retry], canRecoverAutomatically: true)
         case .deviceConnectedUSB:
             StatePresentation(title: "iPhone connected by USB", explanation: "The device is visible to this Mac.", actions: [.continueSetup], canRecoverAutomatically: true)
+        case .deviceConnectedWiFi:
+            StatePresentation(title: "iPhone connected over Wi-Fi", explanation: "The paired device is available on the local network.", actions: [.continueSetup], canRecoverAutomatically: true)
         case .deviceNeedsTrust:
             StatePresentation(title: "Trust this Mac", explanation: "Unlock the iPhone and approve Trust This Computer on the device.", actions: [.retry], canRecoverAutomatically: false, diagnostics: ["LUM-DEV-001"])
         case .developerModeDisabled:

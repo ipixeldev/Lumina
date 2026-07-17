@@ -21,7 +21,7 @@ struct AppleDeviceParserTests {
         #expect(device.pairingState == .paired)
         #expect(device.developerModeState == .enabled)
         #expect(device.isAvailableOverNetwork)
-        #expect(device.developerConnectionHosts == ["test-iphone.coredevice.local", "fd00::1"])
+        #expect(device.developerConnectionHosts == ["fd00::1", "test-iphone.coredevice.local"])
         #expect(device.redactedIdentifier == "0000••••0001")
     }
 

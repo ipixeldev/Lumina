@@ -18,6 +18,8 @@ final class AutomationWorkspaceModel {
     private var session: AutomationSession?
     private var streamTask: Task<Void, Never>?
     private var streamID: UUID?
+    private var streamClient: MJPEGStreamClient?
+    private var endpoint: URL?
     private var frameTimes: [ContinuousClock.Instant] = []
 
     init(logger: StructuredLogging) {
@@ -32,6 +34,7 @@ final class AutomationWorkspaceModel {
             let snapshot = try await client.snapshot(session: session)
             self.client = client
             self.session = session
+            self.endpoint = endpoint
             screenInfo = snapshot.screen
             orientation = snapshot.orientation
             activeApplication = snapshot.activeApplication
@@ -46,31 +49,29 @@ final class AutomationWorkspaceModel {
     }
 
     func startStreaming() {
-        guard streamTask == nil, let client, let session else { return }
+        guard streamTask == nil, let client, let session, let endpoint else { return }
         isStreaming = true
         issue = nil
         frameTimes.removeAll(keepingCapacity: true)
         let streamID = UUID()
         self.streamID = streamID
         streamTask = Task { [weak self] in
-            while !Task.isCancelled {
-                let started = ContinuousClock.now
-                do {
-                    let frame = try await client.screenshot(session: session)
-                    guard !Task.isCancelled else { break }
-                    self?.accept(frame: frame, at: .now)
-                    let elapsed = started.duration(to: .now)
-                    let target = Duration.milliseconds(200)
-                    if elapsed < target {
-                        try await Task.sleep(for: target - elapsed)
-                    }
-                } catch is CancellationError {
-                    break
-                } catch {
-                    self?.issue = error.localizedDescription
-                    self?.logger.error("Live screen refresh failed", category: .mirroring)
-                    try? await Task.sleep(for: .seconds(1))
+            do {
+                try await client.configureVideoStream(session: session)
+                let streamClient = MJPEGStreamClient()
+                self?.streamClient = streamClient
+                let streamEndpoint = Self.videoEndpoint(from: endpoint)
+                let frames = streamClient.frames(from: streamEndpoint) { frame in
+                    Task { @MainActor in self?.accept(frame: frame, at: .now) }
                 }
+                for try await _ in frames {
+                    guard !Task.isCancelled else { break }
+                }
+            } catch is CancellationError {
+                // Normal shutdown.
+            } catch {
+                self?.logger.error("High-frame-rate stream unavailable; using screenshot fallback", category: .mirroring)
+                await self?.runScreenshotFallback(client: client, session: session)
             }
             if self?.streamID == streamID {
                 self?.isStreaming = false
@@ -83,6 +84,8 @@ final class AutomationWorkspaceModel {
 
     func stopStreaming() {
         streamTask?.cancel()
+        streamClient?.stop()
+        streamClient = nil
         streamTask = nil
         streamID = nil
         isStreaming = false
@@ -104,6 +107,31 @@ final class AutomationWorkspaceModel {
         performInput { client, _ in try await client.goHome() }
     }
 
+    func volumeUp() {
+        performInput { client, session in try await client.pressButton(.volumeUp, session: session) }
+    }
+
+    func volumeDown() {
+        performInput { client, session in try await client.pressButton(.volumeDown, session: session) }
+    }
+
+    func lockScreen() {
+        performInput { client, _ in try await client.lock() }
+    }
+
+    func wakeOrUnlock() {
+        performInput { client, _ in try await client.unlock() }
+    }
+
+    func rotate() {
+        let target: DeviceOrientation = switch orientation {
+        case .landscapeLeft, .landscapeRight: .portrait
+        default: .landscapeLeft
+        }
+        performInput { client, session in try await client.rotate(to: target, session: session) }
+        orientation = target
+    }
+
     func refresh() {
         guard let client, let session else { return }
         Task { [weak self] in
@@ -122,6 +150,8 @@ final class AutomationWorkspaceModel {
 
     func disconnect() async {
         streamTask?.cancel()
+        streamClient?.stop()
+        streamClient = nil
         streamTask = nil
         streamID = nil
         if let client, let session {
@@ -129,6 +159,7 @@ final class AutomationWorkspaceModel {
         }
         client = nil
         session = nil
+        endpoint = nil
         isConnected = false
         isStreaming = false
         screenshotData = nil
@@ -157,5 +188,37 @@ final class AutomationWorkspaceModel {
         let cutoff = now.advanced(by: .seconds(-1))
         frameTimes.removeAll { $0 < cutoff }
         framesPerSecond = Double(frameTimes.count)
+    }
+
+    private func runScreenshotFallback(
+        client: any WebDriverAgentControlling,
+        session: AutomationSession
+    ) async {
+        while !Task.isCancelled {
+            let started = ContinuousClock.now
+            do {
+                let frame = try await client.screenshot(session: session)
+                accept(frame: frame, at: .now)
+                let elapsed = started.duration(to: .now)
+                let target = Duration.milliseconds(200)
+                if elapsed < target { try await Task.sleep(for: target - elapsed) }
+            } catch is CancellationError {
+                break
+            } catch {
+                issue = error.localizedDescription
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    private static func videoEndpoint(from endpoint: URL) -> URL {
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            return endpoint
+        }
+        components.port = 9100
+        components.path = "/"
+        components.query = nil
+        components.fragment = nil
+        return components.url ?? endpoint
     }
 }

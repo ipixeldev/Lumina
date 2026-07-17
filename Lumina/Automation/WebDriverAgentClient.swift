@@ -56,6 +56,16 @@ nonisolated protocol WebDriverAgentControlling: Sendable {
     func tap(at point: AutomationPoint, session: AutomationSession) async throws
     func drag(from start: AutomationPoint, to end: AutomationPoint, duration: Double, session: AutomationSession) async throws
     func goHome() async throws
+    func configureVideoStream(session: AutomationSession) async throws
+    func pressButton(_ button: DeviceButton, session: AutomationSession) async throws
+    func lock() async throws
+    func unlock() async throws
+    func rotate(to orientation: DeviceOrientation, session: AutomationSession) async throws
+}
+
+nonisolated enum DeviceButton: String, Equatable, Sendable {
+    case volumeUp = "volumeup"
+    case volumeDown = "volumedown"
 }
 
 nonisolated actor WebDriverAgentClient: WebDriverAgentControlling {
@@ -136,6 +146,45 @@ nonisolated actor WebDriverAgentClient: WebDriverAgentControlling {
 
     func goHome() async throws {
         let _: EmptyEnvelope = try await request("wda/homescreen", method: "POST")
+    }
+
+    func configureVideoStream(session: AutomationSession) async throws {
+        let _: EmptyEnvelope = try await request(
+            "session/\(session.id)/appium/settings",
+            method: "POST",
+            body: [
+                "settings": [
+                    "mjpegServerFramerate": 30,
+                    "mjpegServerScreenshotQuality": 40,
+                    "mjpegScalingFactor": 50,
+                    "mjpegFixOrientation": true
+                ]
+            ]
+        )
+    }
+
+    func pressButton(_ button: DeviceButton, session: AutomationSession) async throws {
+        let _: EmptyEnvelope = try await request(
+            "session/\(session.id)/wda/pressButton",
+            method: "POST",
+            body: ["name": button.rawValue]
+        )
+    }
+
+    func lock() async throws {
+        let _: EmptyEnvelope = try await request("wda/lock", method: "POST")
+    }
+
+    func unlock() async throws {
+        let _: EmptyEnvelope = try await request("wda/unlock", method: "POST")
+    }
+
+    func rotate(to orientation: DeviceOrientation, session: AutomationSession) async throws {
+        let _: EmptyEnvelope = try await request(
+            "session/\(session.id)/orientation",
+            method: "POST",
+            body: ["orientation": orientation.rawValue]
+        )
     }
 
     private func request<Response: Decodable & Sendable>(

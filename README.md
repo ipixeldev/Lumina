@@ -14,7 +14,7 @@
 </p>
 
 > [!IMPORTANT]
-> Lumina is in early development. The app can complete local runner setup, establish a typed WebDriverAgent session, display a live screenshot view, and send tap, swipe, and Home commands to a connected iPhone. Physical-device compatibility still varies by Xcode, iOS, signing, and pairing state.
+> Lumina is in early development. The app can automatically prepare or reuse its local runner, establish a typed WebDriverAgent session, open a dedicated live iPhone window, and send touch and supported hardware commands. Physical-device compatibility still varies by Xcode, iOS, signing, and pairing state.
 
 ## What Lumina is
 
@@ -22,7 +22,7 @@ Lumina is intended to become a native macOS utility for a user to view and contr
 
 The eventual system has two independent channels:
 
-- **Visual channel:** begins with repeated WebDriverAgent screenshots. Faster sources can be added only when backed by a genuine local capture mechanism.
+- **Visual channel:** uses WebDriverAgent's dedicated local MJPEG stream, with bounded screenshot polling as a compatibility fallback.
 - **Control channel:** sends taps, drags, swipes, typing, and supported device actions through a signed XCUITest/WebDriverAgent runner.
 
 ```mermaid
@@ -30,7 +30,7 @@ flowchart LR
     Mac["Lumina on macOS"]
     Transport["Local USB or trusted Wi-Fi transport"]
     Runner["Signed XCUITest / WebDriverAgent runner"]
-    Screen["Screenshot visual channel"]
+    Screen["Bounded MJPEG visual channel"]
     Control["Automation control channel"]
     Phone["User-owned iPhone"]
 
@@ -80,18 +80,24 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Local WebDriverAgent endpoint discovery through trusted CoreDevice hostnames and WDA launch output
 - Typed `/status` validation that rejects a stale or mismatched runner
 - Typed WebDriverAgent session creation, response validation, and best-effort cleanup
-- Live screenshot view with bounded, backpressure-aware polling and an on-screen FPS indicator
+- Automatic reuse of a locally cached runner after signature, team, and bundle verification
+- Installed-runner detection that skips redundant installation on a previously prepared iPhone
+- Automatic build, install when needed, launch, session creation, and device-window opening after the requirements check
+- Dedicated local MJPEG stream with newest-frame buffering, a stable 30 FPS target, and screenshot fallback
+- Physical validation at 28 FPS on an iPhone 15 Plus, up from the previous 5 FPS polling path
+- Separate, content-sized iPhone window modeled after the Simulator workflow
 - Device screen metadata, orientation, and active-application discovery
 - Aspect-fit coordinate mapping for click-to-tap and drag-to-swipe control
-- Home and manual refresh controls
+- Consolidated three-dot menu with Home, Volume Up, Volume Down, Wake or Unlock, Lock Screen, Rotate, and Refresh
+- Paired Wi-Fi device discovery and launch support through Apple's CoreDevice/Xcode transport
 - Bundled WebDriverAgent BSD license and native acknowledgements screen
 
 ### Planned
 
 - Physical-device validation across supported iOS and Xcode versions
-- Trusted USB/Wi-Fi transport hardening and automatic reconnection
-- Higher-performance visual transports and adaptive frame pacing
-- Trackpad scroll, hardware-button shortcuts, and keyboard input
+- Automatic reconnection after transient Wi-Fi loss
+- Adaptive stream resolution and an optional H.264 transport for devices that can sustain higher frame rates
+- Trackpad scroll, keyboard input, and configurable shortcuts
 - Recovery, redacted diagnostics, and release packaging
 
 ## Requirements
@@ -150,12 +156,21 @@ The Xcode project, target, scheme, product, executable, bundle display name, and
 3. In Xcode, open **Settings → Accounts** and sign in with the Apple ID associated with your development team.
 4. Open Lumina, choose **Set up an iPhone**, then select **Check this Mac**.
 5. Confirm that Lumina reports the iPhone as paired, unlocked, and ready, and that Apple Development signing is ready.
-6. Select **Build signed runner**. Xcode may contact Apple to create or refresh the provisioning profile.
-7. After the build succeeds, select **Install and start runner**. Keep the iPhone connected and unlocked while XCTest starts WebDriverAgent.
-8. Lumina creates the automation session, fetches the first screen, and opens **Device Control** automatically.
-9. Click the displayed iPhone screen to tap, drag across it to swipe, or use **Home** in the toolbar. The view refreshes at a bounded rate and displays the measured frame rate.
+6. Lumina automatically verifies and reuses a cached signed runner when possible. On the first run—or after signing/source changes—it builds a fresh runner and Xcode may contact Apple to create or refresh the provisioning profile.
+7. Lumina checks whether that exact runner is already installed. It installs only when needed, then starts XCTest and creates the automation session.
+8. The iPhone screen opens automatically in a separate, device-sized window. Click to tap and drag to swipe.
+9. Use the three-dot menu for Home, volume, screen lock/wake, rotation, and refresh. The toolbar shows the measured frame rate.
 
-The current connection flow requires USB. Trusted Wi-Fi reconnection is planned but is not presented as available until it has been verified reliably across disconnects and runner restarts.
+### Connect over Wi-Fi
+
+The first pairing and runner setup should be completed over USB. For later Wi-Fi sessions:
+
+1. Keep the Mac and iPhone on the same trusted local network with Wi-Fi enabled.
+2. Confirm the iPhone remains paired and available in **Xcode → Window → Devices and Simulators**.
+3. Disconnect USB. Lumina accepts the paired Wi-Fi device when Xcode/CoreDevice reports its developer tunnel as connected.
+4. Open Lumina and run **Check this Mac**. The cached runner and installed app are reused; a normal Wi-Fi reconnect does not rebuild or reinstall them.
+
+Wi-Fi transport depends on Xcode's device tunnel and local-network conditions. Initial trust, Developer Mode, and passcode prompts still require direct action on the iPhone.
 
 Lumina reports setup failures with a diagnostic code and a specific recovery action. It never accepts trust, Developer Mode, passcode, or Apple ID prompts on the user's behalf.
 
@@ -243,7 +258,9 @@ The finished product will still be constrained by Apple's developer automation s
 - XCTest runners can expire or stop after Xcode/iOS changes.
 - Free development signing typically needs more frequent renewal.
 - Some secure, banking, authentication, DRM, or system interfaces may resist automation or capture.
-- Screenshot streaming is lower frame rate than Apple's built-in iPhone Mirroring.
+- MJPEG performance depends on device load and transport quality. Lumina currently targets a stable 30 FPS rather than claiming an unverified 60 FPS.
+- Rotation works only when the active iOS interface accepts the requested orientation; SpringBoard and portrait-only apps can reject it.
+- **Wake or Unlock** can wake an already trusted device but cannot enter a passcode or bypass Face ID/Touch ID.
 - Lumina cannot bypass passcodes, biometrics, Activation Lock, or physical confirmations.
 - Compatibility will vary across Xcode, iOS, device models, and the selected WebDriverAgent version.
 

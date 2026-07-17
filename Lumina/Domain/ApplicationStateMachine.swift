@@ -32,7 +32,7 @@ final class ApplicationStateMachine {
         }
 
         let discoveryStates: [ApplicationState] = [
-            .noDevice, .deviceConnectedUSB, .deviceNeedsTrust,
+            .noDevice, .deviceConnectedUSB, .deviceConnectedWiFi, .deviceNeedsTrust,
             .developerModeDisabled, .deviceLocked
         ]
         if discoveryStates.contains(current), discoveryStates.contains(next) {
@@ -56,13 +56,16 @@ final class ApplicationStateMachine {
              (.requiresUserAction, .checkingEnvironment),
              (.requiresUserAction, .noDevice),
              (.requiresUserAction, .deviceConnectedUSB),
+             (.requiresUserAction, .deviceConnectedWiFi),
              (.requiresUserAction, .deviceNeedsTrust),
              (.requiresUserAction, .developerModeDisabled),
              (.requiresUserAction, .deviceLocked),
              (.noDevice, .deviceConnectedUSB),
+             (.noDevice, .deviceConnectedWiFi),
              (.deviceConnectedUSB, .deviceNeedsTrust),
              (.deviceConnectedUSB, .developerModeDisabled),
              (.deviceConnectedUSB, .devicePreparing),
+             (.deviceConnectedWiFi, .devicePreparing),
              (.deviceNeedsTrust, .deviceConnectedUSB),
              (.developerModeDisabled, .devicePreparing),
              (.devicePreparing, .runnerNotInstalled),
@@ -74,6 +77,7 @@ final class ApplicationStateMachine {
              (.runnerBuildFailed, .runnerBuilding),
              (.runnerBuilt, .runnerBuilding),
              (.runnerBuilt, .runnerInstalling),
+             (.runnerBuilt, .runnerLaunching),
              (.runnerInstalling, .runnerInstallFailed),
              (.runnerInstalling, .runnerLaunching),
              (.runnerInstalling, .runnerBuilt),

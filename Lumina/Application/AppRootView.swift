@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AppRootView: View {
+    @Environment(\.openWindow) private var openWindow
     @Bindable var dependencies: DependencyContainer
     @State private var selection: AppRoute? = .welcome
 
@@ -22,7 +23,9 @@ struct AppRootView: View {
             case .setupAssistant:
                 SetupAssistantView(model: dependencies.setupAssistantModel)
             case .deviceControl:
-                DeviceControlView(model: dependencies.automationWorkspace)
+                DeviceControlLauncherView(model: dependencies.automationWorkspace) {
+                    openWindow(id: "device-control")
+                }
             case .acknowledgements:
                 AcknowledgementsView()
             }
@@ -30,7 +33,25 @@ struct AppRootView: View {
         .onChange(of: dependencies.stateMachine.state) { _, state in
             if state == .connected {
                 selection = .deviceControl
+                openWindow(id: "device-control")
             }
+        }
+    }
+}
+
+private struct DeviceControlLauncherView: View {
+    @Bindable var model: AutomationWorkspaceModel
+    let openDeviceWindow: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(model.isConnected ? "iPhone Connected" : "No Active iPhone", systemImage: model.isConnected ? "iphone.gen3.radiowaves.left.and.right" : "iphone.slash")
+        } description: {
+            Text(model.isConnected ? "The iPhone screen opens in its own Simulator-style window." : "Complete Setup Assistant to connect Lumina to your iPhone.")
+        } actions: {
+            Button("Open iPhone Window", action: openDeviceWindow)
+                .buttonStyle(.borderedProminent)
+                .disabled(!model.isConnected)
         }
     }
 }

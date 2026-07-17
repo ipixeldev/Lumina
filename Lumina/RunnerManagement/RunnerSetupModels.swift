@@ -70,6 +70,7 @@ nonisolated enum RunnerSetupError: Error, Equatable, Sendable {
 }
 
 nonisolated protocol RunnerSetupManaging: Sendable {
+    func isInstalled(configuration: RunnerSetupConfiguration) async -> Bool
     func install(configuration: RunnerSetupConfiguration) async throws
     func launchAndConnect(configuration: RunnerSetupConfiguration) async throws -> RunnerConnection
     func stop()

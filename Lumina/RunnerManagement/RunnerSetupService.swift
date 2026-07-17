@@ -50,6 +50,20 @@ nonisolated final class RunnerSetupService: RunnerSetupManaging, @unchecked Send
         }
     }
 
+    func isInstalled(configuration: RunnerSetupConfiguration) async -> Bool {
+        let resultURL = temporaryDirectory
+            .appendingPathComponent("lumina-runner-query-\(UUID().uuidString)")
+            .appendingPathExtension("json")
+        defer { removeTemporaryFile(resultURL) }
+        do {
+            let result = try await processRunner.run(Self.installedAppCommand(for: configuration, resultURL: resultURL))
+            guard result.succeeded, let data = try? Data(contentsOf: resultURL) else { return false }
+            return String(decoding: data, as: UTF8.self).contains(configuration.bundleIdentifier)
+        } catch {
+            return false
+        }
+    }
+
     func launchAndConnect(configuration: RunnerSetupConfiguration) async throws -> RunnerConnection {
         try validate(configuration)
         let stream: AsyncThrowingStream<String, Error>
@@ -96,6 +110,21 @@ nonisolated final class RunnerSetupService: RunnerSetupManaging, @unchecked Send
         )
     }
 
+    static func installedAppCommand(for configuration: RunnerSetupConfiguration, resultURL: URL) -> CommandRequest {
+        CommandRequest(
+            executableURL: URL(fileURLWithPath: "/usr/bin/xcrun"),
+            arguments: [
+                "devicectl", "device", "info", "apps",
+                "--device", configuration.deviceIdentifier,
+                "--bundle-id", configuration.bundleIdentifier,
+                "--timeout", "20",
+                "--json-output", resultURL.path,
+                "--quiet"
+            ],
+            timeout: .seconds(30)
+        )
+    }
+
     static func launchCommand(for configuration: RunnerSetupConfiguration) -> CommandRequest {
         CommandRequest(
             executableURL: URL(fileURLWithPath: "/usr/bin/xcodebuild"),
@@ -135,7 +164,10 @@ nonisolated final class RunnerSetupService: RunnerSetupManaging, @unchecked Send
         return try await withThrowingTaskGroup(of: RunnerConnection.self) { group in
             for endpoint in knownEndpoints {
                 group.addTask { [healthChecker, now] in
-                    try await Self.waitUntilHealthy(
+                    // A just-terminated XCTest process can leave its old WDA socket alive briefly.
+                    // Prefer the new process marker and avoid creating a session on that stale server.
+                    try await Task.sleep(for: .seconds(5))
+                    return try await Self.waitUntilHealthy(
                         endpoint: endpoint,
                         expectedBundleIdentifier: configuration.productBundleIdentifier,
                         healthChecker: healthChecker,
