@@ -2,8 +2,8 @@ import Foundation
 
 nonisolated enum AppleDeviceParser {
     static func parseDevices(deviceControlData: Data, xcodeDeviceData: Data) -> [Device]? {
-        guard let deviceControl = try? JSONDecoder.mirrorBridge.decode(DeviceControlEnvelope.self, from: deviceControlData),
-              let xcodeDevices = try? JSONDecoder.mirrorBridge.decode([XcodeDevice].self, from: xcodeDeviceData) else {
+        guard let deviceControl = try? JSONDecoder.lumina.decode(DeviceControlEnvelope.self, from: deviceControlData),
+              let xcodeDevices = try? JSONDecoder.lumina.decode([XcodeDevice].self, from: xcodeDeviceData) else {
             return nil
         }
 
@@ -33,6 +33,11 @@ nonisolated enum AppleDeviceParser {
             case "disabled": .disabled
             default: .unknown
             }
+            var developerConnectionHosts = source.connectionProperties.potentialHostnames ?? []
+            if let tunnelAddress = source.connectionProperties.tunnelIPAddress,
+               !developerConnectionHosts.contains(tunnelAddress) {
+                developerConnectionHosts.append(tunnelAddress)
+            }
 
             return Device(
                 id: identifier,
@@ -46,6 +51,7 @@ nonisolated enum AppleDeviceParser {
                 lockState: .unknown,
                 isAvailableOverNetwork: source.connectionProperties.transportType == "localNetwork" &&
                     source.connectionProperties.tunnelState == "connected",
+                developerConnectionHosts: developerConnectionHosts,
                 developerServicesAvailable: source.deviceProperties.ddiServicesAvailable ?? false,
                 lastConnectionDate: parseDate(source.connectionProperties.lastConnectionDate)
             )
@@ -53,7 +59,7 @@ nonisolated enum AppleDeviceParser {
     }
 
     static func parseLockState(_ data: Data) -> DeviceLockState? {
-        guard let response = try? JSONDecoder.mirrorBridge.decode(LockStateEnvelope.self, from: data) else {
+        guard let response = try? JSONDecoder.lumina.decode(LockStateEnvelope.self, from: data) else {
             return nil
         }
         return response.result.passcodeRequired ? .locked : .unlocked
@@ -101,6 +107,8 @@ private nonisolated struct ConnectionProperties: Decodable {
     let pairingState: String?
     let transportType: String?
     let tunnelState: String?
+    let tunnelIPAddress: String?
+    let potentialHostnames: [String]?
     let lastConnectionDate: String?
 }
 
@@ -141,7 +149,7 @@ private nonisolated struct LockStateEnvelope: Decodable {
 }
 
 private nonisolated extension JSONDecoder {
-    static var mirrorBridge: JSONDecoder {
+    static var lumina: JSONDecoder {
         JSONDecoder()
     }
 }

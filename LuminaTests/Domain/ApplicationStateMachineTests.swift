@@ -1,5 +1,5 @@
 import Testing
-@testable import MirrorBridge
+@testable import Lumina
 
 @MainActor
 struct ApplicationStateMachineTests {
@@ -38,7 +38,7 @@ struct ApplicationStateMachineTests {
 
         #expect(presentation.title == "Runner build failed")
         #expect(presentation.explanation == "Provisioning failed")
-        #expect(presentation.diagnostics == ["MB-BUILD-004"])
+        #expect(presentation.diagnostics == ["LUM-BUILD-004"])
         #expect(presentation.actions.contains(.retry))
         #expect(presentation.canRecoverAutomatically == false)
     }
@@ -82,6 +82,18 @@ struct ApplicationStateMachineTests {
 
         #expect(machine.state == .runnerBuilt)
         #expect(machine.state.presentation.actions == [.continueSetup])
+    }
+
+    @Test("Runner installation advances through launch and endpoint verification")
+    func runnerSetupTransitions() throws {
+        let machine = ApplicationStateMachine(initialState: .runnerBuilt, logger: TestLogger())
+
+        try machine.transition(to: .runnerInstalling(progress: nil))
+        try machine.transition(to: .runnerLaunching)
+        try machine.transition(to: .connectingAutomation)
+        try machine.transition(to: .automationReady)
+
+        #expect(machine.state == .automationReady)
     }
 }
 

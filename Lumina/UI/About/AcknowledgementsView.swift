@@ -23,7 +23,7 @@ struct AcknowledgementsView: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text("Acknowledgements")
                     .font(.largeTitle.bold())
-                Text("MirrorBridge is independent open-source software and is not affiliated with Apple or Appium.")
+                Text("Lumina is independent open-source software and is not affiliated with Apple or Appium.")
                     .foregroundStyle(.secondary)
 
                 GroupBox("Appium WebDriverAgent") {

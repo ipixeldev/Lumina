@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MirrorBridge
+@testable import Lumina
 
 struct AppleDeviceParserTests {
     @Test("Structured Apple results merge into one connected USB iPhone")
@@ -21,6 +21,7 @@ struct AppleDeviceParserTests {
         #expect(device.pairingState == .paired)
         #expect(device.developerModeState == .enabled)
         #expect(device.isAvailableOverNetwork)
+        #expect(device.developerConnectionHosts == ["test-iphone.coredevice.local", "fd00::1"])
         #expect(device.redactedIdentifier == "0000••••0001")
     }
 

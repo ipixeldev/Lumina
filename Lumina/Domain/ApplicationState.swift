@@ -33,23 +33,23 @@ nonisolated enum ApplicationState: Equatable, Sendable {
     var presentation: StatePresentation {
         switch self {
         case .appStarting:
-            StatePresentation(title: "Ready to begin", explanation: "MirrorBridge has not checked this Mac yet.", actions: [.beginSetup], canRecoverAutomatically: false)
+            StatePresentation(title: "Ready to begin", explanation: "Lumina has not checked this Mac yet.", actions: [.beginSetup], canRecoverAutomatically: false)
         case .checkingEnvironment:
             StatePresentation(title: "Checking this Mac", explanation: "Inspecting the local developer environment.", actions: [.cancel], canRecoverAutomatically: true, progress: nil)
         case .xcodeMissing:
-            StatePresentation(title: "Xcode is required", explanation: "Install and open Xcode before continuing.", actions: [.openInstructions, .retry], canRecoverAutomatically: false, diagnostics: ["MB-ENV-001"])
+            StatePresentation(title: "Xcode is required", explanation: "Install and open Xcode before continuing.", actions: [.openInstructions, .retry], canRecoverAutomatically: false, diagnostics: ["LUM-ENV-001"])
         case .sdkMissing:
-            StatePresentation(title: "iOS SDK is missing", explanation: "Install an iOS platform in Xcode Settings.", actions: [.openInstructions, .retry], canRecoverAutomatically: false, diagnostics: ["MB-ENV-002"])
+            StatePresentation(title: "iOS SDK is missing", explanation: "Install an iOS platform in Xcode Settings.", actions: [.openInstructions, .retry], canRecoverAutomatically: false, diagnostics: ["LUM-ENV-002"])
         case .certificateMissing:
-            StatePresentation(title: "Development certificate required", explanation: "Create an Apple Development certificate in Xcode.", actions: [.openInstructions, .retry], canRecoverAutomatically: false, diagnostics: ["MB-SIGN-003"])
+            StatePresentation(title: "Development certificate required", explanation: "Create an Apple Development certificate in Xcode.", actions: [.openInstructions, .retry], canRecoverAutomatically: false, diagnostics: ["LUM-SIGN-003"])
         case .noDevice:
             StatePresentation(title: "Connect an iPhone", explanation: "Connect an unlocked iPhone by USB to continue initial setup.", actions: [.retry], canRecoverAutomatically: true)
         case .deviceConnectedUSB:
             StatePresentation(title: "iPhone connected by USB", explanation: "The device is visible to this Mac.", actions: [.continueSetup], canRecoverAutomatically: true)
         case .deviceNeedsTrust:
-            StatePresentation(title: "Trust this Mac", explanation: "Unlock the iPhone and approve Trust This Computer on the device.", actions: [.retry], canRecoverAutomatically: false, diagnostics: ["MB-DEV-001"])
+            StatePresentation(title: "Trust this Mac", explanation: "Unlock the iPhone and approve Trust This Computer on the device.", actions: [.retry], canRecoverAutomatically: false, diagnostics: ["LUM-DEV-001"])
         case .developerModeDisabled:
-            StatePresentation(title: "Developer Mode is disabled", explanation: "Enable Developer Mode in iPhone Settings and complete the required restart.", actions: [.openInstructions, .retry], canRecoverAutomatically: false, diagnostics: ["MB-DEV-003"])
+            StatePresentation(title: "Developer Mode is disabled", explanation: "Enable Developer Mode in iPhone Settings and complete the required restart.", actions: [.openInstructions, .retry], canRecoverAutomatically: false, diagnostics: ["LUM-DEV-003"])
         case .devicePreparing:
             StatePresentation(title: "Preparing iPhone", explanation: "Xcode is preparing developer services for this device.", actions: [.cancel], canRecoverAutomatically: true)
         case .runnerNotInstalled:
@@ -57,13 +57,13 @@ nonisolated enum ApplicationState: Equatable, Sendable {
         case let .runnerBuilding(progress):
             StatePresentation(title: "Building automation runner", explanation: "Xcode is compiling and signing the local XCTest runner.", actions: [.cancel], canRecoverAutomatically: false, progress: progress)
         case let .runnerBuildFailed(message):
-            StatePresentation(title: "Runner build failed", explanation: message, actions: [.retry, .openDiagnostics], canRecoverAutomatically: false, diagnostics: ["MB-BUILD-004"])
+            StatePresentation(title: "Runner build failed", explanation: message, actions: [.retry, .openDiagnostics], canRecoverAutomatically: false, diagnostics: ["LUM-BUILD-004"])
         case .runnerBuilt:
             StatePresentation(title: "Runner ready to install", explanation: "The signed WebDriverAgent runner was built and its signature was verified locally.", actions: [.continueSetup], canRecoverAutomatically: false)
         case let .runnerInstalling(progress):
             StatePresentation(title: "Installing automation runner", explanation: "Installing the signed runner on the connected iPhone.", actions: [.cancel], canRecoverAutomatically: false, progress: progress)
         case let .runnerInstallFailed(message):
-            StatePresentation(title: "Runner installation failed", explanation: message, actions: [.retry, .openDiagnostics], canRecoverAutomatically: false, diagnostics: ["MB-INSTALL-005"])
+            StatePresentation(title: "Runner setup failed", explanation: message, actions: [.retry, .openDiagnostics], canRecoverAutomatically: false, diagnostics: ["LUM-INSTALL-005"])
         case .runnerLaunching:
             StatePresentation(title: "Launching automation runner", explanation: "Starting the signed XCTest runner on the iPhone.", actions: [.cancel], canRecoverAutomatically: true)
         case .connectingAutomation:
@@ -75,13 +75,13 @@ nonisolated enum ApplicationState: Equatable, Sendable {
         case .connected:
             StatePresentation(title: "Connected", explanation: "Visual and control channels are active locally.", actions: [.stop, .openDiagnostics], canRecoverAutomatically: true)
         case .temporarilyDisconnected:
-            StatePresentation(title: "Connection interrupted", explanation: "MirrorBridge paused input while the device is unavailable.", actions: [.reconnect, .stop], canRecoverAutomatically: true)
+            StatePresentation(title: "Connection interrupted", explanation: "Lumina paused input while the device is unavailable.", actions: [.reconnect, .stop], canRecoverAutomatically: true)
         case let .reconnecting(attempt):
             StatePresentation(title: "Reconnecting", explanation: "Recovery attempt \(attempt) is in progress.", actions: [.cancel, .stop], canRecoverAutomatically: true)
         case .deviceLocked:
-            StatePresentation(title: "iPhone is locked", explanation: "Unlock the iPhone physically to resume automation.", actions: [.retry, .stop], canRecoverAutomatically: false, diagnostics: ["MB-DEV-002"])
+            StatePresentation(title: "iPhone is locked", explanation: "Unlock the iPhone physically to resume automation.", actions: [.retry, .stop], canRecoverAutomatically: false, diagnostics: ["LUM-DEV-002"])
         case .runnerCrashed:
-            StatePresentation(title: "Automation runner stopped", explanation: "The signed XCTest runner is no longer responding.", actions: [.reconnect, .stop], canRecoverAutomatically: true, diagnostics: ["MB-WDA-006"])
+            StatePresentation(title: "Automation runner stopped", explanation: "The signed XCTest runner is no longer responding.", actions: [.reconnect, .stop], canRecoverAutomatically: true, diagnostics: ["LUM-WDA-006"])
         case let .requiresUserAction(message):
             StatePresentation(title: "Action required on iPhone", explanation: message, actions: [.retry, .stop], canRecoverAutomatically: false)
         case .stopping:

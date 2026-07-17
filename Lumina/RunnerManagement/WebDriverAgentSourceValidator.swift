@@ -30,6 +30,13 @@ nonisolated struct WebDriverAgentSourceValidator: WebDriverAgentSourceValidating
             throw RunnerBuildError.sourceValidation(Self.issue("WebDriverAgent license integrity check failed"))
         }
 
+        // Bundled source is protected by Lumina's code signature. Development
+        // checkouts additionally verify the submodule revision and cleanliness.
+        let bundlePath = Bundle.main.bundleURL.standardizedFileURL.path + "/"
+        if sourceURL.standardizedFileURL.path.hasPrefix(bundlePath) {
+            return
+        }
+
         let result = try await processRunner.run(
             CommandRequest(
                 executableURL: URL(fileURLWithPath: "/usr/bin/git"),
@@ -55,9 +62,9 @@ nonisolated struct WebDriverAgentSourceValidator: WebDriverAgentSourceValidating
 
     private static func issue(_ title: String) -> RunnerBuildIssue {
         RunnerBuildIssue(
-            code: "MB-BUILD-001",
+            code: "LUM-BUILD-001",
             title: title,
-            explanation: "MirrorBridge only builds the reviewed Appium WebDriverAgent revision and matching license.",
+            explanation: "Lumina only builds the reviewed Appium WebDriverAgent revision and matching license.",
             recovery: "Initialize the repository submodules and restore WebDriverAgent v\(WebDriverAgentPin.version).",
             retryIsSafe: true
         )

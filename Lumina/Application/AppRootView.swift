@@ -10,7 +10,7 @@ struct AppRootView: View {
                 Label(route.title, systemImage: route.systemImage)
                     .tag(route)
             }
-            .navigationTitle("MirrorBridge")
+            .navigationTitle("Lumina")
             .navigationSplitViewColumnWidth(min: 190, ideal: 220)
         } detail: {
             switch selection ?? .welcome {

@@ -13,7 +13,7 @@ struct WelcomeView: View {
                 .accessibilityHidden(true)
 
             VStack(spacing: 10) {
-                Text("MirrorBridge")
+                Text("Lumina")
                     .font(.system(size: 38, weight: .semibold, design: .rounded))
                 Text("View and control your own iPhone using local Apple developer automation.")
                     .font(.title3)
@@ -33,7 +33,7 @@ struct WelcomeView: View {
 
             Spacer()
 
-            Text("Developer Mode, initial USB pairing, and an Apple Development certificate are required. MirrorBridge cannot unlock an iPhone or bypass device confirmations.")
+            Text("Developer Mode, initial USB pairing, and an Apple Development certificate are required. Lumina cannot unlock an iPhone or bypass device confirmations.")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)

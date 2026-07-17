@@ -43,6 +43,7 @@ nonisolated struct Device: Equatable, Identifiable, Sendable {
     let developerModeState: DeveloperModeState
     let lockState: DeviceLockState
     let isAvailableOverNetwork: Bool
+    let developerConnectionHosts: [String]
     let developerServicesAvailable: Bool
     let lastConnectionDate: Date?
 
@@ -64,6 +65,7 @@ nonisolated struct Device: Equatable, Identifiable, Sendable {
             developerModeState: developerModeState,
             lockState: lockState,
             isAvailableOverNetwork: isAvailableOverNetwork,
+            developerConnectionHosts: developerConnectionHosts,
             developerServicesAvailable: developerServicesAvailable,
             lastConnectionDate: lastConnectionDate
         )

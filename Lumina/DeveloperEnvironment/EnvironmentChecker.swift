@@ -54,7 +54,7 @@ nonisolated struct EnvironmentChecker: EnvironmentChecking {
             EnvironmentCheckResult(
                 requirement: .helper,
                 status: .passed,
-                summary: "No external helper is required for Phase 2",
+                summary: "No external environment-check helper is required",
                 details: "Helper selection and integrity validation begin with device transport work.",
                 remediation: nil,
                 errorCode: nil
@@ -87,7 +87,7 @@ nonisolated struct EnvironmentChecker: EnvironmentChecking {
                             ? "No Apple Development certificates are present in the login keychain."
                             : "Certificates were found, but none are both current and backed by a private key.",
                         remediation: "Open Xcode Settings → Accounts, select your team, choose Manage Certificates, and create an Apple Development certificate.",
-                        errorCode: "MB-SIGN-003"
+                        errorCode: "LUM-SIGN-003"
                     ),
                     certificates
                 )
@@ -113,7 +113,7 @@ nonisolated struct EnvironmentChecker: EnvironmentChecking {
                     summary: "Could not inspect development identities",
                     details: "The login keychain query failed.",
                     remediation: "Unlock the login keychain, then run the check again.",
-                    errorCode: "MB-SIGN-004"
+                    errorCode: "LUM-SIGN-004"
                 ),
                 []
             )
@@ -127,9 +127,9 @@ nonisolated struct EnvironmentChecker: EnvironmentChecking {
             requirement: .macOS,
             status: version.majorVersion >= 14 ? .passed : .failed,
             summary: "macOS \(versionText)",
-            details: version.majorVersion >= 14 ? "Meets the macOS 14 minimum." : "MirrorBridge requires macOS 14 or newer.",
+            details: version.majorVersion >= 14 ? "Meets the macOS 14 minimum." : "Lumina requires macOS 14 or newer.",
             remediation: version.majorVersion >= 14 ? nil : "Update macOS to version 14 or newer.",
-            errorCode: version.majorVersion >= 14 ? nil : "MB-ENV-003"
+            errorCode: version.majorVersion >= 14 ? nil : "LUM-ENV-003"
         )
 
         let architectureCheck = EnvironmentCheckResult(
@@ -152,7 +152,7 @@ nonisolated struct EnvironmentChecker: EnvironmentChecking {
                 summary: "\(formatted) available",
                 details: bytes < recommended ? "At least 10 GB is recommended for Xcode build products and result bundles." : nil,
                 remediation: bytes < minimum ? "Free at least 2 GB before building the automation runner." : nil,
-                errorCode: bytes < minimum ? "MB-ENV-004" : nil
+                errorCode: bytes < minimum ? "LUM-ENV-004" : nil
             )
         } else {
             diskCheck = EnvironmentCheckResult(
@@ -176,7 +176,7 @@ nonisolated struct EnvironmentChecker: EnvironmentChecking {
             summary: isXcodePath ? path : "A full Xcode developer directory is not selected",
             details: result.succeeded ? nil : redactedCommandFailure(result),
             remediation: isXcodePath ? nil : "Select Xcode in Xcode Settings → Locations, or explicitly select its Developer directory with xcode-select.",
-            errorCode: isXcodePath ? nil : "MB-ENV-005"
+            errorCode: isXcodePath ? nil : "LUM-ENV-005"
         )
     }
 
@@ -189,7 +189,7 @@ nonisolated struct EnvironmentChecker: EnvironmentChecking {
             summary: version.map { "Xcode \($0.version) (\($0.build))" } ?? "Xcode not available",
             details: result.succeeded ? nil : redactedCommandFailure(result),
             remediation: result.succeeded ? nil : "Install Xcode from the App Store, open it once, and finish installing components.",
-            errorCode: result.succeeded ? nil : "MB-ENV-001"
+            errorCode: result.succeeded ? nil : "LUM-ENV-001"
         )
     }
 
@@ -200,7 +200,7 @@ nonisolated struct EnvironmentChecker: EnvironmentChecking {
             summary: result.succeeded ? "Xcode components and license are ready" : "Xcode first-launch setup is incomplete",
             details: result.succeeded ? nil : redactedCommandFailure(result),
             remediation: result.succeeded ? nil : "Open Xcode and complete its license and component installation prompts.",
-            errorCode: result.succeeded ? nil : "MB-ENV-006"
+            errorCode: result.succeeded ? nil : "LUM-ENV-006"
         )
     }
 
@@ -212,7 +212,7 @@ nonisolated struct EnvironmentChecker: EnvironmentChecking {
             summary: result.succeeded && !path.isEmpty ? "clang is available" : "Command Line Tools are unavailable",
             details: result.succeeded ? path : redactedCommandFailure(result),
             remediation: result.succeeded ? nil : "Open Xcode Settings → Locations and select Command Line Tools.",
-            errorCode: result.succeeded ? nil : "MB-ENV-007"
+            errorCode: result.succeeded ? nil : "LUM-ENV-007"
         )
     }
 
@@ -225,7 +225,7 @@ nonisolated struct EnvironmentChecker: EnvironmentChecking {
             summary: deviceSDKs.map(\.displayName).joined(separator: ", ").nilIfEmpty ?? "No physical-device iOS SDK installed",
             details: result.succeeded ? nil : redactedCommandFailure(result),
             remediation: deviceSDKs.isEmpty ? "Install the iOS platform from Xcode Settings → Components." : nil,
-            errorCode: deviceSDKs.isEmpty ? "MB-ENV-002" : nil
+            errorCode: deviceSDKs.isEmpty ? "LUM-ENV-002" : nil
         )
     }
 

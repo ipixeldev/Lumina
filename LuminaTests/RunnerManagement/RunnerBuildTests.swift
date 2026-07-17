@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MirrorBridge
+@testable import Lumina
 
 struct RunnerBuildTests {
     @Test("Build command uses typed arguments and unique signing values")
@@ -12,17 +12,18 @@ struct RunnerBuildTests {
         #expect(command.executableURL.path == "/usr/bin/xcodebuild")
         #expect(command.arguments.contains("id=TEST-DEVICE"))
         #expect(command.arguments.contains("DEVELOPMENT_TEAM=TESTTEAM1"))
-        #expect(command.arguments.contains("PRODUCT_BUNDLE_IDENTIFIER=com.mirrorbridge.user.utest.WebDriverAgentRunner"))
+        #expect(command.arguments.contains("PRODUCT_BUNDLE_IDENTIFIER=com.iPixeldev.Lumina.user.utest.WebDriverAgentRunner"))
         #expect(command.arguments.contains("-allowProvisioningUpdates"))
         #expect(command.arguments.contains(where: { $0.contains(";") }) == false)
     }
 
     @Test("Common signing and device failures produce actionable codes", arguments: [
-        ("No profiles for 'example' were found: Xcode couldn't find any provisioning profiles", "MB-BUILD-004"),
-        ("Developer Mode is disabled", "MB-DEV-003"),
-        ("The device is locked with a passcode", "MB-DEV-002"),
-        ("Ineligible destinations: device is not connected", "MB-DEV-004"),
-        ("unexpected compiler failure", "MB-BUILD-006")
+        ("No Accounts: Add a new account in Accounts settings. No profiles for 'example' were found.", "LUM-BUILD-011"),
+        ("No profiles for 'example' were found: Xcode couldn't find any provisioning profiles", "LUM-BUILD-004"),
+        ("Developer Mode is disabled", "LUM-DEV-003"),
+        ("The device is locked with a passcode", "LUM-DEV-002"),
+        ("Ineligible destinations: device is not connected", "LUM-DEV-004"),
+        ("unexpected compiler failure", "LUM-BUILD-006")
     ])
     func buildFailureParsing(output: String, expectedCode: String) {
         #expect(BuildLogParser.issue(for: output).code == expectedCode)
@@ -45,6 +46,9 @@ struct RunnerBuildTests {
         let productURL = configuration.derivedDataURL
             .appendingPathComponent("Build/Products/Debug-iphoneos/WebDriverAgentRunner-Runner.app", isDirectory: true)
         try FileManager.default.createDirectory(at: productURL, withIntermediateDirectories: true)
+        let xctestrunURL = configuration.derivedDataURL
+            .appendingPathComponent("Build/Products/WebDriverAgentRunner_iphoneos-arm64.xctestrun")
+        try Data("test configuration".utf8).write(to: xctestrunURL)
         defer { try? FileManager.default.removeItem(at: configuration.derivedDataURL.deletingLastPathComponent()) }
 
         let service = RunnerBuildService(
@@ -56,6 +60,7 @@ struct RunnerBuildTests {
         let result = try await service.build(configuration: configuration)
 
         #expect(result.productURL == productURL)
+        #expect(result.xctestrunURL.resolvingSymlinksInPath() == xctestrunURL.resolvingSymlinksInPath())
         #expect(result.signature.teamIdentifier == "TESTTEAM1")
         #expect(result.bundleIdentifier.hasSuffix(".xctrunner"))
     }
@@ -63,7 +68,7 @@ struct RunnerBuildTests {
     @Test("Source validation enforces the pinned revision, license, and clean tree")
     func sourceValidation() async throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MirrorBridgeSourceTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("LuminaSourceTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent("WebDriverAgent.xcodeproj", isDirectory: true),
             withIntermediateDirectories: true
@@ -81,12 +86,12 @@ struct RunnerBuildTests {
 
     private func configuration() -> RunnerBuildConfiguration {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MirrorBridgeRunnerTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("LuminaRunnerTests-\(UUID().uuidString)", isDirectory: true)
         return RunnerBuildConfiguration(
             sourceURL: root.appendingPathComponent("Source", isDirectory: true),
             deviceIdentifier: "TEST-DEVICE",
             teamIdentifier: "TESTTEAM1",
-            bundleIdentifier: "com.mirrorbridge.user.utest.WebDriverAgentRunner",
+            bundleIdentifier: "com.iPixeldev.Lumina.user.utest.WebDriverAgentRunner",
             derivedDataURL: root.appendingPathComponent("DerivedData", isDirectory: true),
             resultBundleURL: root.appendingPathComponent("Result.xcresult", isDirectory: true),
             allowProvisioningUpdates: true

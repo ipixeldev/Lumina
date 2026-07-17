@@ -10,23 +10,28 @@ final class SetupAssistantModel {
     private(set) var deviceDiscoveryError: String?
     private(set) var runnerBuildResult: RunnerBuildResult?
     private(set) var runnerBuildIssue: RunnerBuildIssue?
+    private(set) var runnerConnection: RunnerConnection?
+    private(set) var runnerSetupIssue: RunnerSetupIssue?
     private(set) var lastUnexpectedError: String?
 
     private let environmentChecker: any EnvironmentChecking
     private let deviceConnectionMonitor: any DeviceConnectionMonitoring
     private let runnerBuilder: any RunnerBuilding
+    private let runnerSetupManager: any RunnerSetupManaging
     private let installationIdentityProvider: any InstallationIdentityProviding
     private let webDriverAgentSourceURL: URL?
     private let logger: StructuredLogging
     private var checkTask: Task<Void, Never>?
     private var deviceMonitorTask: Task<Void, Never>?
     private var runnerBuildTask: Task<Void, Never>?
+    private var runnerSetupTask: Task<Void, Never>?
 
     init(
         stateMachine: ApplicationStateMachine,
         environmentChecker: any EnvironmentChecking,
         deviceConnectionMonitor: any DeviceConnectionMonitoring,
         runnerBuilder: any RunnerBuilding,
+        runnerSetupManager: any RunnerSetupManaging,
         installationIdentityProvider: any InstallationIdentityProviding,
         webDriverAgentSourceURL: URL?,
         logger: StructuredLogging
@@ -35,6 +40,7 @@ final class SetupAssistantModel {
         self.environmentChecker = environmentChecker
         self.deviceConnectionMonitor = deviceConnectionMonitor
         self.runnerBuilder = runnerBuilder
+        self.runnerSetupManager = runnerSetupManager
         self.installationIdentityProvider = installationIdentityProvider
         self.webDriverAgentSourceURL = webDriverAgentSourceURL
         self.logger = logger
@@ -92,6 +98,7 @@ final class SetupAssistantModel {
 
     var isMonitoringDevices: Bool { deviceMonitorTask != nil }
     var isBuildingRunner: Bool { runnerBuildTask != nil }
+    var isSettingUpRunner: Bool { runnerSetupTask != nil }
 
     var canBuildRunner: Bool {
         guard !isBuildingRunner,
@@ -101,10 +108,14 @@ final class SetupAssistantModel {
         return true
     }
 
+    var canInstallRunner: Bool {
+        !isSettingUpRunner && runnerBuildResult != nil && selectedBuildDevice != nil
+    }
+
     var runnerBundleIdentifier: String? {
         do {
             let suffix = try installationIdentityProvider.stableBundleSuffix()
-            return "com.mirrorbridge.user.\(suffix).WebDriverAgentRunner"
+            return "com.iPixeldev.Lumina.user.\(suffix).WebDriverAgentRunner"
         } catch {
             logger.error("Stable runner identity is unavailable", category: .security)
             return nil
@@ -153,12 +164,12 @@ final class SetupAssistantModel {
                 in: .userDomainMask,
                 appropriateFor: nil,
                 create: true
-            ).appendingPathComponent("MirrorBridge/WebDriverAgent", isDirectory: true)
+            ).appendingPathComponent("Lumina/WebDriverAgent", isDirectory: true)
         } catch {
             runnerBuildIssue = RunnerBuildIssue(
-                code: "MB-BUILD-009",
+                code: "LUM-BUILD-009",
                 title: "Build storage is unavailable",
-                explanation: "MirrorBridge could not prepare its local runner build directory.",
+                explanation: "Lumina could not prepare its local runner build directory.",
                 recovery: "Check available disk space and folder permissions, then retry.",
                 retryIsSafe: true
             )
@@ -211,6 +222,76 @@ final class SetupAssistantModel {
         runnerBuildTask?.cancel()
     }
 
+    func installAndLaunchRunner() {
+        guard runnerSetupTask == nil,
+              let buildResult = runnerBuildResult,
+              let device = selectedBuildDevice else { return }
+
+        let configuration = RunnerSetupConfiguration(
+            deviceIdentifier: device.id,
+            productURL: buildResult.productURL,
+            xctestrunURL: buildResult.xctestrunURL,
+            bundleIdentifier: buildResult.bundleIdentifier,
+            developerConnectionHosts: device.developerConnectionHosts
+        )
+        runnerConnection = nil
+        runnerSetupIssue = nil
+        guard transitionIfPossible(to: .runnerInstalling(progress: nil), category: .build) else { return }
+        logger.info("WebDriverAgent installation started", category: .build)
+
+        runnerSetupTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await runnerSetupManager.install(configuration: configuration)
+                try Task.checkCancellation()
+                guard transitionIfPossible(to: .runnerLaunching, category: .build) else {
+                    runnerSetupTask = nil
+                    runnerSetupManager.stop()
+                    return
+                }
+                logger.info("WebDriverAgent launch started", category: .build)
+                let connection = try await runnerSetupManager.launchAndConnect(configuration: configuration)
+                try Task.checkCancellation()
+                runnerConnection = connection
+                runnerSetupTask = nil
+                guard transitionIfPossible(to: .connectingAutomation, category: .build) else { return }
+                transitionIfPossible(to: .automationReady, category: .build)
+                logger.info("WebDriverAgent local status endpoint is ready", category: .build)
+            } catch is CancellationError {
+                runnerSetupTask = nil
+                runnerSetupManager.stop()
+                transitionIfPossible(to: .runnerBuilt, category: .build)
+                logger.info("Runner setup cancelled", category: .build)
+            } catch let error as RunnerSetupError {
+                runnerSetupTask = nil
+                runnerSetupIssue = error.issue
+                transitionIfPossible(to: .runnerInstallFailed(message: error.issue.explanation), category: .build)
+                logger.error("Runner setup failed with \(error.issue.code)", category: .build)
+            } catch {
+                runnerSetupTask = nil
+                let issue = RunnerSetupLogParser.launchIssue(for: error.localizedDescription)
+                runnerSetupIssue = issue
+                transitionIfPossible(to: .runnerInstallFailed(message: issue.explanation), category: .build)
+                logger.error("Runner setup failed unexpectedly", category: .build)
+            }
+        }
+    }
+
+    func cancelRunnerSetup() {
+        runnerSetupTask?.cancel()
+        runnerSetupManager.stop()
+    }
+
+    func stopRunner() {
+        runnerSetupTask?.cancel()
+        runnerSetupTask = nil
+        runnerSetupManager.stop()
+        runnerConnection = nil
+        guard transitionIfPossible(to: .stopping, category: .build) else { return }
+        transitionIfPossible(to: .stopped, category: .build)
+        logger.info("Automation runner stopped", category: .build)
+    }
+
     private var selectedBuildDevice: Device? {
         deviceSnapshot?.devices.first {
             $0.connectionTransport == .usb &&
@@ -238,11 +319,14 @@ final class SetupAssistantModel {
         }
     }
 
-    private func transitionIfPossible(to state: ApplicationState, category: LogCategory) {
+    @discardableResult
+    private func transitionIfPossible(to state: ApplicationState, category: LogCategory) -> Bool {
         do {
             try stateMachine.transition(to: state)
+            return true
         } catch {
             logger.error("Application state could not transition to \(state.presentation.title)", category: category)
+            return false
         }
     }
 

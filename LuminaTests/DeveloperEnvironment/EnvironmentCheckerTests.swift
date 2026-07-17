@@ -1,8 +1,24 @@
 import Foundation
+import Security
 import Testing
-@testable import MirrorBridge
+@testable import Lumina
 
 struct EnvironmentCheckerTests {
+    @Test("Nested Security.framework certificate values expose the team identifier")
+    func nestedCertificateTeamIdentifier() {
+        let value: NSArray = [[
+            kSecPropertyKeyLabel as String: "2.5.4.11",
+            kSecPropertyKeyValue as String: "TESTTEAM1"
+        ]]
+
+        #expect(
+            KeychainDeveloperCertificateProvider.certificateString(
+                in: value,
+                matchingLabel: "2.5.4.11"
+            ) == "TESTTEAM1"
+        )
+    }
+
     @Test("A complete environment advances to device discovery")
     func completeEnvironment() async throws {
         let checker = makeChecker()
@@ -26,7 +42,7 @@ struct EnvironmentCheckerTests {
         let report = try await checker.checkEnvironment()
 
         #expect(report.result(for: .iOSSDK)?.status == .failed)
-        #expect(report.result(for: .iOSSDK)?.errorCode == "MB-ENV-002")
+        #expect(report.result(for: .iOSSDK)?.errorCode == "LUM-ENV-002")
         #expect(report.recommendedState == .sdkMissing)
     }
 
@@ -129,6 +145,20 @@ struct LocalProcessRunnerTests {
                 )
             )
         }
+    }
+
+    @Test("Command environment overrides retain the inherited process environment")
+    func environmentMerge() async throws {
+        let result = try await LocalProcessRunner().run(
+            CommandRequest(
+                executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+                environment: ["LUMINA_TEST_VALUE": "present"]
+            )
+        )
+
+        #expect(result.succeeded)
+        #expect(result.standardOutput.contains("LUMINA_TEST_VALUE=present"))
+        #expect(result.standardOutput.contains("PATH="))
     }
 }
 

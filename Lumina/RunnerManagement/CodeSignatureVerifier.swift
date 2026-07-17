@@ -28,9 +28,9 @@ nonisolated struct SecurityCodeSignatureVerifier: CodeSignatureVerifying {
 
     private static func issue(_ title: String) -> RunnerBuildIssue {
         RunnerBuildIssue(
-            code: "MB-BUILD-005",
+            code: "LUM-BUILD-005",
             title: title,
-            explanation: "MirrorBridge refuses to install a runner whose local signature does not match its build configuration.",
+            explanation: "Lumina refuses to install a runner whose local signature does not match its build configuration.",
             recovery: "Rebuild with a current Apple Development identity and inspect Xcode signing diagnostics.",
             retryIsSafe: true
         )

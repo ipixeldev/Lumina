@@ -79,7 +79,9 @@ private nonisolated final class ProcessControl: @unchecked Sendable {
 
         process.executableURL = request.executableURL
         process.arguments = request.arguments
-        process.environment = request.environment
+        if let requestEnvironment = request.environment {
+            process.environment = ProcessInfo.processInfo.environment.merging(requestEnvironment) { _, requested in requested }
+        }
         process.standardOutput = standardOutput
         process.standardError = standardError
 
@@ -135,10 +137,9 @@ private nonisolated final class ProcessControl: @unchecked Sendable {
     }
 
     func cancel() {
-        lock.withLock {
-            guard let process, process.isRunning else { return }
-            process.terminate()
-        }
+        let activeProcess = lock.withLock { process }
+        guard let activeProcess, activeProcess.isRunning else { return }
+        activeProcess.terminate()
     }
 }
 

@@ -45,7 +45,7 @@ nonisolated struct RunnerBuildService: RunnerBuilding {
         guard FileManager.default.fileExists(atPath: productURL.path) else {
             throw RunnerBuildError.productMissing(
                 RunnerBuildIssue(
-                    code: "MB-BUILD-007",
+                    code: "LUM-BUILD-007",
                     title: "Runner product is missing",
                     explanation: "Xcode reported success but the expected WebDriverAgent runner app was not produced.",
                     recovery: "Clean the WebDriverAgent derived data and build again.",
@@ -53,6 +53,7 @@ nonisolated struct RunnerBuildService: RunnerBuilding {
                 )
             )
         }
+        let xctestrunURL = try locateXCTestRun(in: configuration.derivedDataURL)
         let signedIdentifier = configuration.bundleIdentifier + ".xctrunner"
         let signature = try signatureVerifier.verify(
             appURL: productURL,
@@ -61,12 +62,46 @@ nonisolated struct RunnerBuildService: RunnerBuilding {
         )
         return RunnerBuildResult(
             productURL: productURL,
+            xctestrunURL: xctestrunURL,
             resultBundleURL: configuration.resultBundleURL,
             bundleIdentifier: signedIdentifier,
             duration: duration,
             signature: signature
         )
     }
+
+    private func locateXCTestRun(in derivedDataURL: URL) throws -> URL {
+        let productsURL = derivedDataURL.appendingPathComponent("Build/Products", isDirectory: true)
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .isRegularFileKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: productsURL,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else {
+            throw RunnerBuildError.productMissing(Self.xctestrunIssue)
+        }
+
+        let candidates = enumerator.compactMap { item -> (url: URL, modified: Date)? in
+            guard let url = item as? URL,
+                  url.pathExtension == "xctestrun",
+                  url.lastPathComponent.contains("WebDriverAgentRunner"),
+                  let values = try? url.resourceValues(forKeys: keys),
+                  values.isRegularFile == true else { return nil }
+            return (url, values.contentModificationDate ?? .distantPast)
+        }
+        guard let newest = candidates.max(by: { $0.modified < $1.modified }) else {
+            throw RunnerBuildError.productMissing(Self.xctestrunIssue)
+        }
+        return newest.url
+    }
+
+    private static let xctestrunIssue = RunnerBuildIssue(
+        code: "LUM-BUILD-010",
+        title: "Runner launch metadata is missing",
+        explanation: "Xcode built the runner app but did not produce the XCTest launch configuration.",
+        recovery: "Clean the WebDriverAgent derived data and build the runner again.",
+        retryIsSafe: true
+    )
 
     static func command(for configuration: RunnerBuildConfiguration) -> CommandRequest {
         var arguments = [
@@ -101,7 +136,7 @@ nonisolated struct RunnerBuildService: RunnerBuilding {
               configuration.bundleIdentifier.rangeOfCharacter(from: allowed.inverted) == nil else {
             throw RunnerBuildError.invalidConfiguration(
                 RunnerBuildIssue(
-                    code: "MB-BUILD-008",
+                    code: "LUM-BUILD-008",
                     title: "Runner configuration is invalid",
                     explanation: "A device, development team, and valid unique bundle identifier are required.",
                     recovery: "Reconnect the iPhone and run the Mac and signing checks again.",

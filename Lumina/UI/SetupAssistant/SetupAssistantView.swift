@@ -11,7 +11,7 @@ struct SetupAssistantView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Setup Assistant")
                         .font(.largeTitle.bold())
-                    Text("Phases 2 and 3 perform real Mac checks and continuously discover physical iPhones using Apple developer tools.")
+                    Text("Lumina checks this Mac and continuously discovers physical iPhones using local Apple developer tools.")
                         .foregroundStyle(.secondary)
                 }
 
@@ -148,6 +148,10 @@ struct SetupAssistantView: View {
             if model.runnerBuildResult != nil { return .passed }
             if model.runnerBuildIssue != nil { return .failed }
             return nil
+        case .installRunner:
+            if model.runnerConnection != nil { return .passed }
+            if model.runnerSetupIssue != nil { return .failed }
+            return nil
         default:
             return nil
         }
@@ -193,8 +197,37 @@ private struct RunnerBuildView: View {
                 Text("Product: \(result.productURL.lastPathComponent)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("Installation and launch begin in the next phase.")
-                    .font(.callout)
+
+                if model.isSettingUpRunner {
+                    ProgressView(setupProgressTitle)
+                    Button("Cancel runner setup", role: .cancel) {
+                        model.cancelRunnerSetup()
+                    }
+                } else if let connection = model.runnerConnection {
+                    Label("Automation runner is ready", systemImage: "checkmark.circle.fill")
+                        .font(.headline)
+                        .foregroundStyle(.green)
+                    DeviceProperty(label: "Local endpoint", value: connection.endpoint.absoluteString)
+                        .textSelection(.enabled)
+                    DeviceProperty(label: "Status", value: connection.status.message)
+                    if let osName = connection.status.operatingSystemName,
+                       let osVersion = connection.status.operatingSystemVersion {
+                        DeviceProperty(label: "Device software", value: "\(osName) \(osVersion)")
+                    }
+                    Button("Stop runner", role: .destructive) {
+                        model.stopRunner()
+                    }
+                } else {
+                    Button("Install and start runner") {
+                        model.installAndLaunchRunner()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!model.canInstallRunner)
+                    .accessibilityIdentifier("installRunnerButton")
+                    Text("Lumina installs the verified local build with Apple's device tooling, starts it through XCTest, and checks its status over the trusted developer connection.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 Button("Build signed runner") {
                     model.buildRunner()
@@ -220,11 +253,38 @@ private struct RunnerBuildView: View {
                         .foregroundStyle(.tertiary)
                 }
             }
+
+            if let issue = model.runnerSetupIssue {
+                VStack(alignment: .leading, spacing: 5) {
+                    Label(issue.title, systemImage: "xmark.circle.fill")
+                        .font(.headline)
+                        .foregroundStyle(.red)
+                    Text(issue.explanation)
+                    Text(issue.recovery)
+                        .foregroundStyle(.secondary)
+                    Text(issue.code)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.tertiary)
+                }
+            }
         }
         .padding(16)
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("runnerBuildSection")
+    }
+
+    private var setupProgressTitle: String {
+        switch model.stateMachine.state {
+        case .runnerInstalling:
+            "Installing the signed runner…"
+        case .runnerLaunching:
+            "Starting the XCTest runner…"
+        case .connectingAutomation:
+            "Checking the local automation endpoint…"
+        default:
+            "Preparing the automation runner…"
+        }
     }
 }
 
@@ -311,7 +371,7 @@ private struct DeviceCard: View {
     @ViewBuilder
     private var guidance: some View {
         if device.pairingState != .paired {
-            Label("Unlock the iPhone and approve Trust This Computer. MirrorBridge cannot bypass this confirmation.", systemImage: "hand.raised.fill")
+            Label("Unlock the iPhone and approve Trust This Computer. Lumina cannot bypass this confirmation.", systemImage: "hand.raised.fill")
                 .foregroundStyle(.orange)
         } else if device.developerModeState == .disabled {
             Label("Enable Developer Mode in Settings → Privacy & Security, restart, and confirm it on the iPhone.", systemImage: "hammer.fill")
@@ -320,7 +380,7 @@ private struct DeviceCard: View {
             Label("Unlock the iPhone physically to continue setup.", systemImage: "lock.fill")
                 .foregroundStyle(.orange)
         } else {
-            Label("This iPhone is ready for runner setup in Phase 4.", systemImage: "checkmark.circle.fill")
+            Label("This iPhone is ready for runner setup.", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
         }
     }
@@ -486,12 +546,6 @@ private struct SetupStepRow: View {
 
             Spacer()
 
-            Text(step.phaseLabel)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.quaternary, in: Capsule())
         }
         .padding(.horizontal, 18)
         .padding(.top, 18)
@@ -558,16 +612,6 @@ private enum SetupStep: String, CaseIterable, Identifiable {
         }
     }
 
-    var phaseLabel: String {
-        switch self {
-        case .macRequirements, .signing: "Phase 2"
-        case .connectIPhone, .trust, .developerMode: "Phase 3"
-        case .buildRunner: "Phase 4"
-        case .installRunner: "Phase 5"
-        case .testConnection: "Phase 6"
-        case .startMirroring: "Phase 7"
-        }
-    }
 }
 
 #Preview {

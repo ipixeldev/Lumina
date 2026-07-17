@@ -13,6 +13,7 @@ final class DependencyContainer {
         environmentChecker: any EnvironmentChecking,
         deviceConnectionMonitor: any DeviceConnectionMonitoring,
         runnerBuilder: any RunnerBuilding,
+        runnerSetupManager: any RunnerSetupManaging,
         installationIdentityProvider: any InstallationIdentityProviding,
         webDriverAgentSourceURL: URL?,
         logger: StructuredLogging
@@ -23,6 +24,7 @@ final class DependencyContainer {
             environmentChecker: environmentChecker,
             deviceConnectionMonitor: deviceConnectionMonitor,
             runnerBuilder: runnerBuilder,
+            runnerSetupManager: runnerSetupManager,
             installationIdentityProvider: installationIdentityProvider,
             webDriverAgentSourceURL: webDriverAgentSourceURL,
             logger: logger
@@ -47,19 +49,34 @@ final class DependencyContainer {
             sourceValidator: WebDriverAgentSourceValidator(processRunner: processRunner),
             signatureVerifier: SecurityCodeSignatureVerifier()
         )
-        let sourceURL = developmentWebDriverAgentSourceURL()
+        let runnerSetupManager = RunnerSetupService(
+            processRunner: processRunner,
+            streamingProcess: LocalStreamingProcess(),
+            healthChecker: URLSessionWebDriverAgentHealthChecker(),
+            logger: logger
+        )
+        let sourceURL = webDriverAgentSourceURL()
         return DependencyContainer(
             stateMachine: ApplicationStateMachine(logger: logger),
             environmentChecker: environmentChecker,
             deviceConnectionMonitor: PollingDeviceConnectionMonitor(discoveryService: deviceDiscoveryService),
             runnerBuilder: runnerBuilder,
+            runnerSetupManager: runnerSetupManager,
             installationIdentityProvider: KeychainInstallationIdentityProvider(),
             webDriverAgentSourceURL: sourceURL,
             logger: logger
         )
     }
 
-    private static func developmentWebDriverAgentSourceURL() -> URL? {
+    private static func webDriverAgentSourceURL() -> URL? {
+        if let resourcesURL = Bundle.main.resourceURL {
+            let bundledSource = resourcesURL.appendingPathComponent("WebDriverAgent", isDirectory: true)
+            let bundledProject = bundledSource.appendingPathComponent("WebDriverAgent.xcodeproj", isDirectory: true)
+            if FileManager.default.fileExists(atPath: bundledProject.path) {
+                return bundledSource
+            }
+        }
+
         let sourceFileURL = URL(fileURLWithPath: #filePath)
         let repositoryURL = sourceFileURL
             .deletingLastPathComponent()

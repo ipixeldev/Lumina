@@ -6,7 +6,7 @@
         "identifier": "CORE-DEVICE-ONE",
         "deviceProperties": { "name": "Test iPhone", "developerModeStatus": "enabled", "osVersionNumber": "18.5", "ddiServicesAvailable": true },
         "hardwareProperties": { "deviceType": "iPhone", "platform": "iOS", "reality": "physical", "marketingName": "iPhone 15", "productType": "iPhone15,4", "udid": "00008120-TESTDEVICE0001" },
-        "connectionProperties": { "pairingState": "paired", "transportType": "localNetwork", "tunnelState": "connected", "lastConnectionDate": "2026-07-17T02:47:50Z" }
+        "connectionProperties": { "pairingState": "paired", "transportType": "localNetwork", "tunnelState": "connected", "tunnelIPAddress": "fd00::1", "potentialHostnames": ["test-iphone.coredevice.local"], "lastConnectionDate": "2026-07-17T02:47:50Z" }
       },
       {
         "identifier": "CORE-WATCH",

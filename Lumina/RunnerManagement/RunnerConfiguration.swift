@@ -17,6 +17,7 @@ nonisolated struct RunnerCodeSignature: Equatable, Sendable {
 
 nonisolated struct RunnerBuildResult: Equatable, Sendable {
     let productURL: URL
+    let xctestrunURL: URL
     let resultBundleURL: URL
     let bundleIdentifier: String
     let duration: Duration

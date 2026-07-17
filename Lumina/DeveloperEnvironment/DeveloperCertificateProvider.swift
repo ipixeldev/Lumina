@@ -83,15 +83,70 @@ nonisolated struct KeychainDeveloperCertificateProvider: DeveloperCertificatePro
     }
 
     private static func certificateDate(_ certificate: SecCertificate, oid: CFString) -> Date? {
-        propertyValue(certificate, oid: oid) as? Date
+        let value = propertyValue(certificate, oid: oid)
+        if let date = value as? Date {
+            return date
+        }
+        if let absoluteTime = value as? NSNumber {
+            return Date(timeIntervalSinceReferenceDate: absoluteTime.doubleValue)
+        }
+        return nil
     }
 
     private static func certificateString(_ certificate: SecCertificate, oid: CFString) -> String? {
-        if let string = propertyValue(certificate, oid: oid) as? String {
+        if let direct = propertyValue(certificate, oid: oid).flatMap(firstCertificateString) {
+            return direct
+        }
+        guard let subject = propertyValue(certificate, oid: kSecOIDX509V1SubjectName) else {
+            return nil
+        }
+        return certificateString(in: subject, matchingLabel: oid as String)
+    }
+
+    static func certificateString(in value: Any, matchingLabel expectedLabel: String) -> String? {
+        if let dictionary = value as? NSDictionary {
+            if let label = dictionary.object(forKey: kSecPropertyKeyLabel) as? String,
+               label == expectedLabel,
+               let nested = dictionary.object(forKey: kSecPropertyKeyValue) {
+                return firstCertificateString(in: nested)
+            }
+            for nested in dictionary.allValues {
+                if let string = certificateString(in: nested, matchingLabel: expectedLabel) {
+                    return string
+                }
+            }
+        }
+        if let values = value as? NSArray {
+            for nested in values {
+                if let string = certificateString(in: nested, matchingLabel: expectedLabel) {
+                    return string
+                }
+            }
+        }
+        return nil
+    }
+
+    static func firstCertificateString(in value: Any) -> String? {
+        if let string = value as? String {
             return string
         }
-        if let values = propertyValue(certificate, oid: oid) as? [[CFString: Any]] {
-            return values.compactMap { $0[kSecPropertyKeyValue] as? String }.first
+        if let dictionary = value as? NSDictionary {
+            if let nested = dictionary.object(forKey: kSecPropertyKeyValue),
+               let string = firstCertificateString(in: nested) {
+                return string
+            }
+            for nested in dictionary.allValues {
+                if let string = firstCertificateString(in: nested) {
+                    return string
+                }
+            }
+        }
+        if let values = value as? NSArray {
+            for nested in values {
+                if let string = firstCertificateString(in: nested) {
+                    return string
+                }
+            }
         }
         return nil
     }

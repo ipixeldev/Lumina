@@ -1,8 +1,10 @@
-# MirrorBridge
+# Lumina
 
 <p align="center">
-  <strong>A local-first native macOS foundation for viewing and controlling your own iPhone through Apple developer automation.</strong>
+  <strong>A local-first native macOS utility for viewing and controlling your own iPhone through Apple developer automation.</strong>
 </p>
+
+![Lumina welcome screen](Documentation/Images/lumina-welcome-dark.jpg)
 
 <p align="center">
   <img alt="Platform: macOS 14 or newer" src="https://img.shields.io/badge/macOS-14%2B-000000?logo=apple">
@@ -11,18 +13,12 @@
   <img alt="Privacy: local first" src="https://img.shields.io/badge/privacy-local--first-22c55e">
 </p>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="Documentation/Images/mirrorbridge-welcome-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="Documentation/Images/mirrorbridge-welcome-light.png">
-  <img alt="MirrorBridge welcome screen" src="Documentation/Images/mirrorbridge-welcome-light.png">
-</picture>
-
 > [!IMPORTANT]
-> MirrorBridge is in early development. The app can inspect the Mac developer environment, discover a physical iPhone, and build a uniquely identified signed WebDriverAgent runner. It does **not yet install or launch the runner, mirror a screen, or send control commands**.
+> Lumina is in early development. The app can inspect the Mac developer environment, discover a physical iPhone, build and sign WebDriverAgent, install the runner, launch it through XCTest, and verify its local status endpoint. Physical-device compatibility still varies by Xcode, iOS, signing, and pairing state. Screen mirroring and user input are not implemented yet.
 
-## What MirrorBridge is
+## What Lumina is
 
-MirrorBridge is intended to become a native macOS utility for a user to view and control their own non-jailbroken iPhone without a cloud backend. The design uses supported or demonstrably working Apple developer mechanisms and does not pretend that an ordinary iOS application can control other applications.
+Lumina is intended to become a native macOS utility for a user to view and control their own non-jailbroken iPhone without a cloud backend. The design uses supported or demonstrably working Apple developer mechanisms and does not pretend that an ordinary iOS application can control other applications.
 
 The eventual system has two independent channels:
 
@@ -31,7 +27,7 @@ The eventual system has two independent channels:
 
 ```mermaid
 flowchart LR
-    Mac["MirrorBridge on macOS"]
+    Mac["Lumina on macOS"]
     Transport["Local USB or trusted Wi-Fi transport"]
     Runner["Signed XCUITest / WebDriverAgent runner"]
     Screen["Screenshot visual channel"]
@@ -55,7 +51,7 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Native SwiftUI macOS application targeting macOS 14+
 - Swift 6 language mode and strict concurrency boundaries
 - Welcome experience and privacy messaging
-- Nine-step setup-assistant shell with honest phase labels
+- Nine-step setup assistant with live capability status
 - Explicit workflow state machine with guarded transitions
 - User-facing state explanations, actions, recovery flags, diagnostics, and progress
 - Protocol-based dependency container
@@ -74,16 +70,21 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Partially redacted device identifiers and continuous connection-change monitoring with bounded backoff
 - Trust, unlock, and Developer Mode guidance that preserves required on-device confirmations
 - Appium WebDriverAgent v15.1.6 pinned as a Git submodule at commit `5f8280e761dc0b5b9b28368e63a8f0cc8d868346`
+- Pinned WebDriverAgent source packaged inside the app so runner builds do not require Documents-folder access
 - Stable per-install runner bundle identifiers backed by a random Keychain identity
 - Automatic selection of a usable Apple Development team without hard-coded signing data
 - Cancellable `xcodebuild build-for-testing` with result bundles and actionable failure classification
 - Local Security.framework verification of the produced runner signature, team, and identifier
+- Structured runner installation through Apple's `devicectl`
+- Long-lived XCTest launch with cancellation and actionable failure diagnostics
+- Local WebDriverAgent endpoint discovery through trusted CoreDevice hostnames and WDA launch output
+- Typed `/status` validation that rejects a stale or mismatched runner
 - Bundled WebDriverAgent BSD license and native acknowledgements screen
 
 ### Planned
 
-- Runner installation and launch
-- Loopback-only USB transport and trusted Wi-Fi reconnection
+- Physical-device validation across supported iOS and Xcode versions
+- Trusted USB/Wi-Fi transport hardening and automatic reconnection
 - Typed WebDriverAgent client and automation session management
 - Screenshot mirroring with bounded buffers and adaptive polling
 - Coordinate mapping, mouse gestures, trackpad input, and keyboard input
@@ -103,10 +104,11 @@ Physical-device discovery and future automation require:
 - Initial USB connection and trust pairing
 - Developer Mode enabled on the iPhone
 - Xcode with the matching iOS platform installed
+- An Apple ID signed in under **Xcode → Settings → Accounts** so Xcode can create a device provisioning profile
 - An Apple Development certificate and signing team
 - Periodic runner rebuilding or re-signing, especially with a free personal team
 
-MirrorBridge will never bypass passcodes, Face ID, Touch ID, Activation Lock, device trust, or Developer Mode confirmations.
+Lumina will never bypass passcodes, Face ID, Touch ID, Activation Lock, device trust, or Developer Mode confirmations.
 
 ## Install from source
 
@@ -133,7 +135,21 @@ In Xcode:
 5. Choose **My Mac** as the run destination.
 6. Press **Run** or use `⌘R`.
 
-The Xcode project and scheme retain the historical name `Lumina`; the built product, executable, bundle display name, and Swift module are `MirrorBridge`.
+The Xcode project, target, scheme, product, executable, bundle display name, and Swift module are all named `Lumina`.
+
+## Connect an iPhone
+
+![Lumina setup assistant](Documentation/Images/lumina-setup-dark.jpg)
+
+1. Connect the iPhone over USB, unlock it, and accept **Trust This Computer** if prompted.
+2. Enable **Developer Mode** under **Settings → Privacy & Security** on the iPhone, then complete the required restart and on-device confirmation.
+3. In Xcode, open **Settings → Accounts** and sign in with the Apple ID associated with your development team.
+4. Open Lumina, choose **Set up an iPhone**, then select **Check this Mac**.
+5. Confirm that Lumina reports the iPhone as paired, unlocked, and ready, and that Apple Development signing is ready.
+6. Select **Build signed runner**. Xcode may contact Apple to create or refresh the provisioning profile.
+7. After the build succeeds, select **Install and start runner**. Keep the iPhone connected and unlocked while XCTest starts WebDriverAgent.
+
+Lumina reports setup failures with a diagnostic code and a specific recovery action. It never accepts trust, Developer Mode, passcode, or Apple ID prompts on the user's behalf.
 
 ### Command-line build
 
@@ -145,7 +161,7 @@ xcodebuild \
   -scheme Lumina \
   -configuration Debug \
   -destination 'platform=macOS' \
-  -derivedDataPath /tmp/MirrorBridgeDerivedData \
+  -derivedDataPath /tmp/LuminaDerivedData \
   CODE_SIGNING_ALLOWED=NO \
   build
 ```
@@ -153,7 +169,7 @@ xcodebuild \
 The app will be written to:
 
 ```text
-/tmp/MirrorBridgeDerivedData/Build/Products/Debug/MirrorBridge.app
+/tmp/LuminaDerivedData/Build/Products/Debug/Lumina.app
 ```
 
 ## Run the tests
@@ -166,7 +182,7 @@ xcodebuild \
   -scheme Lumina \
   -configuration Debug \
   -destination 'platform=macOS' \
-  -derivedDataPath /tmp/MirrorBridgeTestData \
+  -derivedDataPath /tmp/LuminaTestData \
   CODE_SIGNING_ALLOWED=NO \
   -only-testing:LuminaTests \
   test
@@ -182,7 +198,7 @@ Lumina/
 ├── Domain/               Workflow states, devices, transition rules
 ├── DeviceManagement/     Apple-tool discovery and connection monitoring
 ├── DeveloperEnvironment/ Mac, Xcode, SDK, and signing checks
-├── RunnerManagement/     Pinned-source validation, build, errors, signatures
+├── RunnerManagement/     Build, signing, installation, launch, local health
 ├── Diagnostics/          Structured local logging
 ├── UI/
 │   ├── Welcome/
@@ -191,7 +207,6 @@ Lumina/
 └── Assets.xcassets/
 LuminaTests/               Swift Testing unit and structured-fixture tests
 LuminaUITests/             XCUITest app and opt-in physical-device coverage
-Documentation/Images/      README screenshots
 Vendor/WebDriverAgent/      Pinned Appium WebDriverAgent submodule
 ```
 
@@ -202,7 +217,7 @@ Folders for automation, transport, mirroring, input, and security will be introd
 - Core operation stays local between the Mac and paired iPhone.
 - No analytics, tracking SDK, advertising SDK, or remote logging.
 - No cloud video or remote internet control.
-- Local proxy endpoints bind to loopback unless a verified design requires otherwise.
+- Automation endpoints use loopback or trusted CoreDevice-local hostnames and are never exposed as public services.
 - Typed text and clipboard content must never be logged.
 - Device identifiers, user paths, certificates, and exported diagnostics must be redacted.
 - Helpers must be versioned, signed, licensed, integrity checked, and narrowly scoped.
@@ -219,20 +234,20 @@ The finished product will still be constrained by Apple's developer automation s
 - Free development signing typically needs more frequent renewal.
 - Some secure, banking, authentication, DRM, or system interfaces may resist automation or capture.
 - Screenshot streaming is lower frame rate than Apple's built-in iPhone Mirroring.
-- MirrorBridge cannot bypass passcodes, biometrics, Activation Lock, or physical confirmations.
+- Lumina cannot bypass passcodes, biometrics, Activation Lock, or physical confirmations.
 - Compatibility will vary across Xcode, iOS, device models, and the selected WebDriverAgent version.
 
 ## WebDriverAgent acknowledgement
 
-MirrorBridge uses [Appium WebDriverAgent](https://github.com/appium/WebDriverAgent), version 15.1.6 pinned to commit `5f8280e761dc0b5b9b28368e63a8f0cc8d868346`. The upstream repository is actively maintained and its `LICENSE` identifies WebDriverAgent as BSD-licensed. MirrorBridge preserves that license text in the application bundle and displays it in the Acknowledgements screen.
+Lumina uses [Appium WebDriverAgent](https://github.com/appium/WebDriverAgent), version 15.1.6 pinned to commit `5f8280e761dc0b5b9b28368e63a8f0cc8d868346`. The upstream repository is actively maintained and its `LICENSE` identifies WebDriverAgent as BSD-licensed. Lumina preserves that license text in the application bundle and displays it in the Acknowledgements screen.
 
-The pinned source defines the route foundation used by later automation work, including status and health checks, session creation/deletion, application actions, orientation, screenshots, W3C touch actions, and coordinate gestures. MirrorBridge does not assume route compatibility with a different WebDriverAgent revision.
+The pinned source defines the route foundation used by later automation work, including status and health checks, session creation/deletion, application actions, orientation, screenshots, W3C touch actions, and coordinate gestures. Lumina does not assume route compatibility with a different WebDriverAgent revision.
 
-MirrorBridge is not affiliated with or endorsed by Appium, Facebook, or Apple.
+Lumina is not affiliated with or endorsed by Appium, Facebook, or Apple.
 
 ## Contributing
 
-Contributions are welcome once the repository has an explicit open-source license.
+Contributions are welcome.
 
 1. Select a focused issue that can be implemented and verified independently.
 2. Fork the repository and create a focused branch.
@@ -246,6 +261,6 @@ Physical-device behavior must not be described as working until it has been test
 
 ## License
 
-MirrorBridge is open-source software released under the [MIT License](LICENSE).
+Lumina is open-source software released under the [MIT License](LICENSE).
 
-The pinned WebDriverAgent dependency remains subject to its own bundled license and copyright notices. MirrorBridge is not affiliated with or endorsed by Apple. Apple, macOS, iPhone, Xcode, and related marks belong to Apple Inc.
+The pinned WebDriverAgent dependency remains subject to its own bundled license and copyright notices. Lumina is not affiliated with or endorsed by Apple. Apple, macOS, iPhone, Xcode, and related marks belong to Apple Inc.

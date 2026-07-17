@@ -25,7 +25,7 @@ nonisolated protocol StructuredLogging: Sendable {
 nonisolated struct StructuredLogger: StructuredLogging {
     private let subsystem: String
 
-    init(subsystem: String = Bundle.main.bundleIdentifier ?? "com.iPixeldev.MirrorBridge") {
+    init(subsystem: String = Bundle.main.bundleIdentifier ?? "com.iPixeldev.Lumina") {
         self.subsystem = subsystem
     }
 

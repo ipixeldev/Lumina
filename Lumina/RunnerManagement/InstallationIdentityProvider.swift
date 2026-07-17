@@ -12,7 +12,7 @@ nonisolated enum InstallationIdentityError: Error, Equatable, Sendable {
 }
 
 nonisolated struct KeychainInstallationIdentityProvider: InstallationIdentityProviding {
-    private let service = "com.iPixeldev.MirrorBridge.runner-identity"
+    private let service = "com.iPixeldev.Lumina.runner-identity"
     private let account = "installation"
 
     func stableBundleSuffix() throws -> String {

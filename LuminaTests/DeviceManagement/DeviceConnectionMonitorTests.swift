@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MirrorBridge
+@testable import Lumina
 
 struct DeviceConnectionMonitorTests {
     @Test("Connection monitoring emits changes and suppresses identical polls")
@@ -16,6 +16,7 @@ struct DeviceConnectionMonitorTests {
             developerModeState: .enabled,
             lockState: .unlocked,
             isAvailableOverNetwork: true,
+            developerConnectionHosts: ["test-iphone.coredevice.local"],
             developerServicesAvailable: true,
             lastConnectionDate: nil
         )

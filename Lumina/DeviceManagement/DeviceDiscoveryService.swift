@@ -16,7 +16,7 @@ nonisolated enum DeviceDiscoveryError: Error, Equatable, Sendable {
         case .resultFileMissing:
             "Apple's device tool did not create its structured result file."
         case let .invalidStructuredOutput(tool):
-            "\(tool) returned a device format this MirrorBridge version does not understand."
+            "\(tool) returned a device format this Lumina version does not understand."
         }
     }
 }
@@ -41,7 +41,7 @@ nonisolated struct AppleDeviceDiscoveryService: DeviceDiscovering {
 
     func discoverDevices() async throws -> DeviceDiscoverySnapshot {
         let resultURL = temporaryDirectory
-            .appendingPathComponent("mirrorbridge-devices-\(UUID().uuidString)")
+            .appendingPathComponent("lumina-devices-\(UUID().uuidString)")
             .appendingPathExtension("json")
         defer { removeTemporaryFile(resultURL) }
 
@@ -101,7 +101,7 @@ nonisolated struct AppleDeviceDiscoveryService: DeviceDiscovering {
 
     private func lockState(for identifier: String) async -> DeviceLockState {
         let resultURL = temporaryDirectory
-            .appendingPathComponent("mirrorbridge-lock-\(UUID().uuidString)")
+            .appendingPathComponent("lumina-lock-\(UUID().uuidString)")
             .appendingPathExtension("json")
         defer { removeTemporaryFile(resultURL) }
 
