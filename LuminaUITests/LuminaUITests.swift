@@ -32,6 +32,25 @@ final class LuminaUITests: XCTestCase {
     }
 
     @MainActor
+    func testEnvironmentCheckProducesRealResults() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let setupButton = app.buttons["Set up an iPhone"]
+        XCTAssertTrue(setupButton.waitForExistence(timeout: 3))
+        setupButton.click()
+
+        let checkButton = app.buttons["checkThisMacButton"]
+        XCTAssertTrue(checkButton.waitForExistence(timeout: 3))
+        checkButton.click()
+
+        let report = app.descendants(matching: .any)["environmentReport"]
+        XCTAssertTrue(report.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["macOS"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Xcode"].exists)
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

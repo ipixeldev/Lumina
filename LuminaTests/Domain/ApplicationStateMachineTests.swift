@@ -49,6 +49,16 @@ struct ApplicationStateMachineTests {
 
         #expect(presentation.progress == 0.65)
     }
+
+    @Test("Environment checks can be rerun after reaching device discovery")
+    func rerunEnvironmentChecks() throws {
+        let machine = ApplicationStateMachine(initialState: .noDevice, logger: TestLogger())
+
+        try machine.transition(to: .checkingEnvironment)
+        try machine.transition(to: .noDevice)
+
+        #expect(machine.state == .noDevice)
+    }
 }
 
 private struct TestLogger: StructuredLogging {

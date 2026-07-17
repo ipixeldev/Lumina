@@ -18,7 +18,7 @@
 </picture>
 
 > [!IMPORTANT]
-> MirrorBridge is in early development. The current repository contains the Phase 1 macOS foundation: navigation, onboarding, the setup-assistant shell, structured logging, dependency injection, and the workflow state machine. It does **not yet discover an iPhone, build WebDriverAgent, mirror a screen, or inject control commands**. Follow the [implementation plan](Documentation/IMPLEMENTATION_PLAN.md) for current scope and progress.
+> MirrorBridge is in early development. The current repository contains the Phase 1 macOS foundation and Phase 2 local environment checker. It can inspect the Mac, Xcode, installed iOS SDKs, disk space, architecture, and Apple Development identities. It does **not yet discover an iPhone, build WebDriverAgent, mirror a screen, or inject control commands**. Follow the [implementation plan](Documentation/IMPLEMENTATION_PLAN.md) for current scope and progress.
 
 ## What MirrorBridge is
 
@@ -63,10 +63,15 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - App Sandbox and Hardened Runtime enabled
 - Unit tests for state transitions and presentation metadata
 - Light and dark appearance launch coverage
+- Real macOS, architecture, and disk-space checks
+- Real Xcode version, selected developer directory, first-launch/license, and Command Line Tools checks
+- Structured physical-device iOS SDK discovery through `xcodebuild -showsdks -json`
+- Local Apple Development identity, private-key, team, and validity inspection through Security.framework
+- Cancellable, bounded async process execution without shell command construction
+- Actionable environment results and remediation in the setup assistant
 
 ### Planned
 
-- Real Xcode, iOS SDK, disk-space, and signing checks
 - Physical iPhone discovery through structured Apple tooling
 - Trust and Developer Mode guidance
 - Pinned, licensed WebDriverAgent integration

@@ -71,7 +71,7 @@ Directories are added only when their phase contains real code; empty architectu
 5. Add unit tests for valid transitions, invalid transitions, stopping, diagnostics metadata, and progress metadata.
 6. Build and test against macOS 14 with Swift 6 language mode.
 
-## Phase 2 — developer environment checker
+## Phase 2 — developer environment checker (complete)
 
 1. Introduce command execution behind a typed `ProcessRunning` protocol using executable URLs and argument arrays, never shell-concatenated input.
 2. Implement macOS, Xcode path/version, license readiness, Command Line Tools, iOS SDK, disk-space, and architecture checks.
@@ -80,6 +80,8 @@ Directories are added only when their phase contains real code; empty architectu
 5. Add certificate selection, command construction, environment-result parsing, and failure tests using captured fixtures.
 
 Exit criterion: real local results appear in the setup assistant; no iPhone access is attempted.
+
+Implemented in `Documentation/PHASE_2_REPORT.md`. The production path uses real local system information, structured Xcode SDK output, and Security.framework identities. No iPhone access is attempted in this phase.
 
 ## Phase 3 — physical device discovery
 

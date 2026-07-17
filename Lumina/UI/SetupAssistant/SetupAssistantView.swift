@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SetupAssistantView: View {
-    @Bindable var stateMachine: ApplicationStateMachine
+    @Bindable var model: SetupAssistantModel
 
     private let steps = SetupStep.allCases
 
@@ -11,15 +11,24 @@ struct SetupAssistantView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Setup Assistant")
                         .font(.largeTitle.bold())
-                    Text("The foundation is ready. Environment and device checks are introduced in Phases 2 and 3; this screen does not report simulated results.")
+                    Text("Phase 2 performs real checks on this Mac. Physical iPhone discovery and connection arrive in Phase 3.")
                         .foregroundStyle(.secondary)
                 }
 
                 stateCard
 
+                if let report = model.environmentReport {
+                    EnvironmentReportView(report: report)
+                }
+
                 VStack(spacing: 0) {
                     ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
-                        SetupStepRow(step: step, number: index + 1, isLast: index == steps.count - 1)
+                        SetupStepRow(
+                            step: step,
+                            number: index + 1,
+                            isLast: index == steps.count - 1,
+                            status: status(for: step)
+                        )
                     }
                 }
                 .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
@@ -29,26 +38,182 @@ struct SetupAssistantView: View {
                 }
             }
             .padding(32)
-            .frame(maxWidth: 820, alignment: .leading)
+            .frame(maxWidth: 860, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("Setup Assistant")
     }
 
     private var stateCard: some View {
-        let presentation = stateMachine.state.presentation
-        return VStack(alignment: .leading, spacing: 8) {
-            Label(presentation.title, systemImage: "info.circle")
+        let presentation = model.stateMachine.state.presentation
+        return VStack(alignment: .leading, spacing: 12) {
+            Label(presentation.title, systemImage: model.isChecking ? "gearshape.2" : "info.circle")
                 .font(.headline)
+                .accessibilityIdentifier("applicationStateTitle")
             Text(presentation.explanation)
                 .foregroundStyle(.secondary)
-            if let progress = presentation.progress {
-                ProgressView(value: progress)
+
+            if model.isChecking {
+                ProgressView()
+                    .controlSize(.small)
+                Button("Cancel", role: .cancel) {
+                    model.cancelCheck()
+                }
+            } else {
+                Button(model.environmentReport == nil ? "Check this Mac" : "Run checks again") {
+                    model.checkThisMac()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canStartEnvironmentCheck)
+                .accessibilityIdentifier("checkThisMacButton")
+            }
+
+            if let error = model.lastUnexpectedError {
+                Text(error)
+                    .font(.callout)
+                    .foregroundStyle(.red)
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var canStartEnvironmentCheck: Bool {
+        switch model.stateMachine.state {
+        case .appStarting, .stopped, .xcodeMissing, .sdkMissing, .certificateMissing, .noDevice, .requiresUserAction:
+            true
+        default:
+            false
+        }
+    }
+
+    private func status(for step: SetupStep) -> EnvironmentCheckStatus? {
+        guard let report = model.environmentReport else { return nil }
+        switch step {
+        case .macRequirements:
+            let requirements: [EnvironmentRequirement] = [
+                .macOS, .architecture, .diskSpace, .xcode, .developerDirectory,
+                .xcodeFirstLaunch, .commandLineTools, .iOSSDK, .helper
+            ]
+            let statuses = requirements.compactMap { report.result(for: $0)?.status }
+            if statuses.contains(.failed) { return .failed }
+            if statuses.contains(.warning) { return .warning }
+            return statuses.isEmpty ? nil : .passed
+        case .signing:
+            return report.result(for: .developmentCertificate)?.status
+        default:
+            return nil
+        }
+    }
+}
+
+private struct EnvironmentReportView: View {
+    let report: EnvironmentReport
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Mac environment")
+                    .font(.title2.bold())
+                Spacer()
+                Text(report.completedAt, format: .dateTime.hour().minute().second())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(report.checks.enumerated()), id: \.element.id) { index, result in
+                    EnvironmentCheckRow(result: result)
+                    if index < report.checks.count - 1 {
+                        Divider().padding(.leading, 44)
+                    }
+                }
+            }
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
+
+            if !report.certificates.isEmpty {
+                Text("Development identities")
+                    .font(.headline)
+                ForEach(report.certificates) { certificate in
+                    CertificateRow(certificate: certificate)
+                }
+            }
+        }
+        .accessibilityIdentifier("environmentReport")
+    }
+}
+
+private struct EnvironmentCheckRow: View {
+    let result: EnvironmentCheckResult
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: result.status.systemImage)
+                .foregroundStyle(result.status.color)
+                .font(.title3)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(result.requirement.title)
+                    .font(.headline)
+                Text(result.summary)
+                    .font(.callout)
+                if let details = result.details {
+                    Text(details)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                if let remediation = result.remediation {
+                    Label(remediation, systemImage: "wrench.and.screwdriver")
+                        .font(.caption)
+                        .foregroundStyle(result.status == .failed ? .orange : .secondary)
+                }
+                if let errorCode = result.errorCode {
+                    Text(errorCode)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            Spacer()
+        }
+        .padding(14)
+        .accessibilityIdentifier("environmentCheck.\(result.requirement.rawValue)")
+    }
+}
+
+private struct CertificateRow: View {
+    let certificate: DeveloperCertificateIdentity
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label(
+                    certificate.canSign ? "Ready for signing" : "Not usable",
+                    systemImage: certificate.canSign ? "checkmark.seal.fill" : "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(certificate.canSign ? .green : .orange)
+                Spacer()
+                if let expirationDate = certificate.expirationDate {
+                    Text("Expires \(expirationDate.formatted(date: .abbreviated, time: .omitted))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text(certificate.displayName)
+                .textSelection(.enabled)
+            HStack(spacing: 14) {
+                if let teamID = certificate.teamID {
+                    Text("Team \(teamID)")
+                }
+                Text(certificate.hasPrivateKey ? "Private key available" : "Private key missing")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -56,14 +221,22 @@ private struct SetupStepRow: View {
     let step: SetupStep
     let number: Int
     let isLast: Bool
+    let status: EnvironmentCheckStatus?
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             VStack(spacing: 4) {
-                Text("\(number)")
-                    .font(.caption.bold())
-                    .frame(width: 26, height: 26)
-                    .background(.quaternary, in: Circle())
+                Group {
+                    if let status {
+                        Image(systemName: status.systemImage)
+                            .foregroundStyle(status.color)
+                    } else {
+                        Text("\(number)")
+                            .font(.caption.bold())
+                    }
+                }
+                .frame(width: 26, height: 26)
+                .background(.quaternary, in: Circle())
                 if !isLast {
                     Rectangle()
                         .fill(.separator)
@@ -93,6 +266,24 @@ private struct SetupStepRow: View {
         .padding(.horizontal, 18)
         .padding(.top, 18)
         .padding(.bottom, isLast ? 18 : 0)
+    }
+}
+
+private extension EnvironmentCheckStatus {
+    var systemImage: String {
+        switch self {
+        case .passed: "checkmark.circle.fill"
+        case .warning: "exclamationmark.triangle.fill"
+        case .failed: "xmark.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .passed: .green
+        case .warning: .orange
+        case .failed: .red
+        }
     }
 }
 
@@ -150,6 +341,6 @@ private enum SetupStep: String, CaseIterable, Identifiable {
 }
 
 #Preview {
-    SetupAssistantView(stateMachine: ApplicationStateMachine())
-        .frame(width: 900, height: 700)
+    SetupAssistantView(model: DependencyContainer.live.setupAssistantModel)
+        .frame(width: 960, height: 760)
 }

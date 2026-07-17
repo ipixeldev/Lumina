@@ -20,7 +20,7 @@ struct AppRootView: View {
                     selection = .setupAssistant
                 }
             case .setupAssistant:
-                SetupAssistantView(stateMachine: dependencies.stateMachine)
+                SetupAssistantView(model: dependencies.setupAssistantModel)
             }
         }
     }
