@@ -31,6 +31,14 @@ final class ApplicationStateMachine {
             return current != .stopped && current != .stopping
         }
 
+        let discoveryStates: [ApplicationState] = [
+            .noDevice, .deviceConnectedUSB, .deviceNeedsTrust,
+            .developerModeDisabled, .deviceLocked
+        ]
+        if discoveryStates.contains(current), discoveryStates.contains(next) {
+            return true
+        }
+
         return switch (current, next) {
         case (.appStarting, .checkingEnvironment),
              (.stopped, .checkingEnvironment),
@@ -44,7 +52,13 @@ final class ApplicationStateMachine {
              (.sdkMissing, .checkingEnvironment),
              (.certificateMissing, .checkingEnvironment),
              (.noDevice, .checkingEnvironment),
+             (.noDevice, .requiresUserAction),
              (.requiresUserAction, .checkingEnvironment),
+             (.requiresUserAction, .noDevice),
+             (.requiresUserAction, .deviceConnectedUSB),
+             (.requiresUserAction, .deviceNeedsTrust),
+             (.requiresUserAction, .developerModeDisabled),
+             (.requiresUserAction, .deviceLocked),
              (.noDevice, .deviceConnectedUSB),
              (.deviceConnectedUSB, .deviceNeedsTrust),
              (.deviceConnectedUSB, .developerModeDisabled),

@@ -59,6 +59,19 @@ struct ApplicationStateMachineTests {
 
         #expect(machine.state == .noDevice)
     }
+
+    @Test("Device discovery states react to connection and readiness changes")
+    func deviceDiscoveryTransitions() throws {
+        let machine = ApplicationStateMachine(initialState: .noDevice, logger: TestLogger())
+
+        try machine.transition(to: .deviceConnectedUSB)
+        try machine.transition(to: .deviceLocked)
+        try machine.transition(to: .developerModeDisabled)
+        try machine.transition(to: .deviceNeedsTrust)
+        try machine.transition(to: .noDevice)
+
+        #expect(machine.state == .noDevice)
+    }
 }
 
 private struct TestLogger: StructuredLogging {

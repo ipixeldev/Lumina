@@ -11,7 +11,7 @@ struct SetupAssistantView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Setup Assistant")
                         .font(.largeTitle.bold())
-                    Text("Phase 2 performs real checks on this Mac. Physical iPhone discovery and connection arrive in Phase 3.")
+                    Text("Phases 2 and 3 perform real Mac checks and continuously discover physical iPhones using Apple developer tools.")
                         .foregroundStyle(.secondary)
                 }
 
@@ -19,6 +19,24 @@ struct SetupAssistantView: View {
 
                 if let report = model.environmentReport {
                     EnvironmentReportView(report: report)
+                }
+
+                if let snapshot = model.deviceSnapshot {
+                    DeviceDiscoveryView(snapshot: snapshot, error: model.deviceDiscoveryError)
+                } else if model.isMonitoringDevices {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 10) {
+                            ProgressView().controlSize(.small)
+                            Text("Looking for a physical iPhone…")
+                                .foregroundStyle(.secondary)
+                        }
+                        if let error = model.deviceDiscoveryError {
+                            Label(error, systemImage: "exclamationmark.triangle.fill")
+                                .font(.callout)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    .accessibilityIdentifier("deviceDiscoveryProgress")
                 }
 
                 VStack(spacing: 0) {
@@ -60,12 +78,21 @@ struct SetupAssistantView: View {
                     model.cancelCheck()
                 }
             } else {
-                Button(model.environmentReport == nil ? "Check this Mac" : "Run checks again") {
-                    model.checkThisMac()
+                HStack {
+                    Button(model.environmentReport == nil ? "Check this Mac" : "Run Mac checks again") {
+                        model.checkThisMac()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canStartEnvironmentCheck)
+                    .accessibilityIdentifier("checkThisMacButton")
+
+                    if model.environmentReport != nil, !model.isMonitoringDevices {
+                        Button("Find connected iPhones") {
+                            model.startDeviceMonitoring()
+                        }
+                        .accessibilityIdentifier("findIPhonesButton")
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(!canStartEnvironmentCheck)
-                .accessibilityIdentifier("checkThisMacButton")
             }
 
             if let error = model.lastUnexpectedError {
@@ -102,8 +129,135 @@ struct SetupAssistantView: View {
             return statuses.isEmpty ? nil : .passed
         case .signing:
             return report.result(for: .developmentCertificate)?.status
+        case .connectIPhone:
+            return deviceStatus { _ in .passed }
+        case .trust:
+            return deviceStatus { $0.pairingState == .paired ? .passed : .failed }
+        case .developerMode:
+            return deviceStatus {
+                switch $0.developerModeState {
+                case .enabled: .passed
+                case .disabled: .failed
+                case .unknown: .warning
+                }
+            }
         default:
             return nil
+        }
+    }
+
+    private func deviceStatus(_ status: (Device) -> EnvironmentCheckStatus) -> EnvironmentCheckStatus? {
+        guard let device = model.deviceSnapshot?.devices.first else { return nil }
+        return status(device)
+    }
+}
+
+private struct DeviceDiscoveryView: View {
+    let snapshot: DeviceDiscoverySnapshot
+    let error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Physical iPhones")
+                    .font(.title2.bold())
+                Spacer()
+                Text("Monitoring connection changes")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if snapshot.devices.isEmpty {
+                ContentUnavailableView(
+                    "No connected iPhone",
+                    systemImage: "cable.connector",
+                    description: Text("Connect an unlocked iPhone by USB, then approve Trust This Computer if prompted.")
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+            } else {
+                ForEach(snapshot.devices) { device in
+                    DeviceCard(device: device)
+                }
+            }
+
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("deviceDiscoveryReport")
+    }
+}
+
+private struct DeviceCard: View {
+    let device: Device
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                Image(systemName: "iphone")
+                    .font(.title)
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(device.name).font(.headline)
+                    Text("\(device.model) · iOS \(device.operatingSystemVersion)")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Label(device.connectionTransport.displayName, systemImage: device.connectionTransport == .usb ? "cable.connector" : "wifi")
+                    .font(.callout.bold())
+            }
+
+            HStack(spacing: 18) {
+                DeviceProperty(label: "Pairing", value: device.pairingState.rawValue.capitalized)
+                DeviceProperty(label: "Developer Mode", value: device.developerModeState.rawValue.capitalized)
+                DeviceProperty(label: "Lock", value: device.lockState.rawValue.capitalized)
+                DeviceProperty(label: "Identifier", value: device.redactedIdentifier)
+            }
+
+            if device.isAvailableOverNetwork {
+                Label("Also available through the local developer network tunnel", systemImage: "wifi")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            guidance
+        }
+        .padding(16)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("physicalIPhoneCard")
+    }
+
+    @ViewBuilder
+    private var guidance: some View {
+        if device.pairingState != .paired {
+            Label("Unlock the iPhone and approve Trust This Computer. MirrorBridge cannot bypass this confirmation.", systemImage: "hand.raised.fill")
+                .foregroundStyle(.orange)
+        } else if device.developerModeState == .disabled {
+            Label("Enable Developer Mode in Settings → Privacy & Security, restart, and confirm it on the iPhone.", systemImage: "hammer.fill")
+                .foregroundStyle(.orange)
+        } else if device.lockState == .locked {
+            Label("Unlock the iPhone physically to continue setup.", systemImage: "lock.fill")
+                .foregroundStyle(.orange)
+        } else {
+            Label("This iPhone is ready for runner setup in Phase 4.", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        }
+    }
+}
+
+private struct DeviceProperty: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(value).font(.callout)
         }
     }
 }

@@ -1,0 +1,4 @@
+{
+  "info": { "jsonVersion": 2, "outcome": "success" },
+  "result": { "deviceIdentifier": "CORE-DEVICE-ONE", "passcodeRequired": false, "unlockedSinceBoot": true }
+}

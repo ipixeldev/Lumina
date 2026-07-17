@@ -1,0 +1,32 @@
+[
+  {
+    "available": true,
+    "identifier": "00008120-TESTDEVICE0001",
+    "interface": "usb",
+    "modelName": "iPhone 15",
+    "name": "Test iPhone",
+    "operatingSystemVersion": "18.5 (22F76)",
+    "platform": "com.apple.platform.iphoneos",
+    "simulator": false
+  },
+  {
+    "available": false,
+    "identifier": "00008120-OFFLINEDEVICE",
+    "interface": "usb",
+    "modelName": "iPhone 13",
+    "name": "Old iPhone",
+    "operatingSystemVersion": "17.0 (21A329)",
+    "platform": "com.apple.platform.iphoneos",
+    "simulator": false,
+    "error": { "description": "The device is not connected", "failureReason": "The device is not connected", "recoverySuggestion": "Reconnect the device" }
+  },
+  {
+    "available": true,
+    "identifier": "SIMULATOR-IDENTIFIER",
+    "modelName": "iPhone Simulator",
+    "name": "iPhone Simulator",
+    "operatingSystemVersion": "18.5",
+    "platform": "com.apple.platform.iphonesimulator",
+    "simulator": true
+  }
+]

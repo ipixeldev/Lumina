@@ -18,7 +18,7 @@
 </picture>
 
 > [!IMPORTANT]
-> MirrorBridge is in early development. The current repository contains the Phase 1 macOS foundation and Phase 2 local environment checker. It can inspect the Mac, Xcode, installed iOS SDKs, disk space, architecture, and Apple Development identities. It does **not yet discover an iPhone, build WebDriverAgent, mirror a screen, or inject control commands**. Follow the [implementation plan](Documentation/IMPLEMENTATION_PLAN.md) for current scope and progress.
+> MirrorBridge is in early development. Phases 1–3 are implemented: the app can inspect the Mac developer environment and discover a connected physical iPhone using structured Apple tooling. It does **not yet build WebDriverAgent, install an automation runner, mirror a screen, or send control commands**. Follow the [implementation plan](Documentation/IMPLEMENTATION_PLAN.md) for current scope and progress.
 
 ## What MirrorBridge is
 
@@ -60,7 +60,7 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - User-facing state explanations, actions, recovery flags, diagnostics, and progress
 - Protocol-based dependency container
 - Structured OSLog categories
-- App Sandbox and Hardened Runtime enabled
+- Hardened Runtime enabled; App Sandbox is disabled because it blocks Xcode and CoreDevice command-line services required for local device development
 - Unit tests for state transitions and presentation metadata
 - Light and dark appearance launch coverage
 - Real macOS, architecture, and disk-space checks
@@ -69,11 +69,13 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Local Apple Development identity, private-key, team, and validity inspection through Security.framework
 - Cancellable, bounded async process execution without shell command construction
 - Actionable environment results and remediation in the setup assistant
+- Structured physical-iPhone discovery by merging `devicectl` and `xcdevice` results
+- Real USB connection, pairing, Developer Mode, current lock, and network-tunnel status
+- Partially redacted device identifiers and continuous connection-change monitoring with bounded backoff
+- Trust, unlock, and Developer Mode guidance that preserves required on-device confirmations
 
 ### Planned
 
-- Physical iPhone discovery through structured Apple tooling
-- Trust and Developer Mode guidance
 - Pinned, licensed WebDriverAgent integration
 - Runner signing, building, installation, and launch
 - Loopback-only USB transport and trusted Wi-Fi reconnection
@@ -92,7 +94,7 @@ To build the current macOS foundation:
 - Xcode with the macOS SDK installed
 - Git
 
-Future iPhone automation phases will additionally require:
+Physical-device discovery and future automation require:
 
 - A personally owned, compatible iPhone
 - Initial USB connection and trust pairing
@@ -168,18 +170,20 @@ UI tests require a local development signing identity in some Xcode configuratio
 ```text
 Lumina/
 ├── Application/          App entry point, navigation, dependencies
-├── Domain/               Workflow states and transition rules
+├── Domain/               Workflow states, devices, transition rules
+├── DeviceManagement/     Apple-tool discovery and connection monitoring
+├── DeveloperEnvironment/ Mac, Xcode, SDK, and signing checks
 ├── Diagnostics/          Structured local logging
 ├── UI/
 │   ├── Welcome/
 │   └── SetupAssistant/
 └── Assets.xcassets/
-LuminaTests/               Swift Testing unit tests
-LuminaUITests/             XCUITest launch coverage
+LuminaTests/               Swift Testing unit and structured-fixture tests
+LuminaUITests/             XCUITest app and opt-in physical-device coverage
 Documentation/             Architecture and implementation plan
 ```
 
-Folders for device management, automation, transport, mirroring, input, and security will be introduced only when they contain real, tested implementations.
+Folders for automation, transport, mirroring, input, and security will be introduced only when they contain real, tested implementations.
 
 ## Security and privacy principles
 

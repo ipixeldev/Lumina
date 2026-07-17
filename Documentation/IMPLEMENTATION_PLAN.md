@@ -8,7 +8,7 @@
 - Automatic signing is configured with a development team in the project file. No certificate validity or private-key availability has been checked yet; that belongs to Phase 2.
 - No WebDriverAgent source, Swift package dependency, port-forwarding helper, or third-party license is present.
 - No physical-device discovery or device connection code exists.
-- App Sandbox and Hardened Runtime are enabled. Their compatibility with later build/device helpers must be evaluated before those helpers are integrated.
+- Hardened Runtime is enabled. Phase 3 confirmed that App Sandbox blocks Xcode/CoreDevice command-line services, so the app target disables App Sandbox with the rationale recorded in the Phase 3 report.
 - The Xcode target and Swift module remain named `Lumina` in Phase 1 to avoid mixing a project-identity migration with the architectural foundation. The shipped product and UI are named `MirrorBridge`.
 
 ## Proposed final source structure
@@ -83,7 +83,7 @@ Exit criterion: real local results appear in the setup assistant; no iPhone acce
 
 Implemented in `Documentation/PHASE_2_REPORT.md`. The production path uses real local system information, structured Xcode SDK output, and Security.framework identities. No iPhone access is attempted in this phase.
 
-## Phase 3 — physical device discovery
+## Phase 3 — physical device discovery (complete)
 
 1. Verify the current `xcrun devicectl` JSON schema on the installed Xcode and encapsulate it behind `DeviceDiscovering`.
 2. Implement physical iPhone discovery and normalized device models, excluding simulator data from production results.
@@ -92,6 +92,8 @@ Implemented in `Documentation/PHASE_2_REPORT.md`. The production path uses real 
 5. Add fixture-driven parser tests and perform an explicitly recorded physical-device verification.
 
 Exit criterion: a real connected iPhone can be shown with sourced, non-mocked properties.
+
+Implemented in `Documentation/PHASE_3_REPORT.md`. A physical iPhone connected over USB was discovered in the signed application-level test with real model, iOS, pairing, Developer Mode, lock, and network-availability fields.
 
 ## Phase 4 — WebDriverAgent source and signing
 

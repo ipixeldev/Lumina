@@ -74,10 +74,6 @@ nonisolated struct EnvironmentReport: Equatable, Sendable {
         if result(for: .iOSSDK)?.status == .failed {
             return .sdkMissing
         }
-        if result(for: .developmentCertificate)?.status == .failed {
-            return .certificateMissing
-        }
-
         let blockingOrder: [EnvironmentRequirement] = [
             .macOS,
             .diskSpace,

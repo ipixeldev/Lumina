@@ -30,14 +30,14 @@ struct EnvironmentCheckerTests {
         #expect(report.recommendedState == .sdkMissing)
     }
 
-    @Test("No usable certificate produces the certificate state")
+    @Test("A missing certificate remains visible without blocking device discovery")
     func missingCertificate() async throws {
         let checker = makeChecker(certificates: [])
 
         let report = try await checker.checkEnvironment()
 
         #expect(report.result(for: .developmentCertificate)?.status == .failed)
-        #expect(report.recommendedState == .certificateMissing)
+        #expect(report.recommendedState == .noDevice)
     }
 
     @Test("An unavailable Xcode installation takes priority over later failures")
