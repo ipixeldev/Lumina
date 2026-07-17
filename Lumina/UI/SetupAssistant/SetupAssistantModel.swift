@@ -20,6 +20,7 @@ final class SetupAssistantModel {
     private let runnerSetupManager: any RunnerSetupManaging
     private let installationIdentityProvider: any InstallationIdentityProviding
     private let webDriverAgentSourceURL: URL?
+    private let automationWorkspace: AutomationWorkspaceModel
     private let logger: StructuredLogging
     private var checkTask: Task<Void, Never>?
     private var deviceMonitorTask: Task<Void, Never>?
@@ -34,6 +35,7 @@ final class SetupAssistantModel {
         runnerSetupManager: any RunnerSetupManaging,
         installationIdentityProvider: any InstallationIdentityProviding,
         webDriverAgentSourceURL: URL?,
+        automationWorkspace: AutomationWorkspaceModel,
         logger: StructuredLogging
     ) {
         self.stateMachine = stateMachine
@@ -43,6 +45,7 @@ final class SetupAssistantModel {
         self.runnerSetupManager = runnerSetupManager
         self.installationIdentityProvider = installationIdentityProvider
         self.webDriverAgentSourceURL = webDriverAgentSourceURL
+        self.automationWorkspace = automationWorkspace
         self.logger = logger
     }
 
@@ -252,13 +255,19 @@ final class SetupAssistantModel {
                 logger.info("WebDriverAgent launch started", category: .build)
                 let connection = try await runnerSetupManager.launchAndConnect(configuration: configuration)
                 try Task.checkCancellation()
-                runnerConnection = connection
-                runnerSetupTask = nil
                 guard transitionIfPossible(to: .connectingAutomation, category: .build) else { return }
-                transitionIfPossible(to: .automationReady, category: .build)
-                logger.info("WebDriverAgent local status endpoint is ready", category: .build)
+                try await automationWorkspace.connect(to: connection.endpoint)
+                try Task.checkCancellation()
+                runnerConnection = connection
+                guard transitionIfPossible(to: .automationReady, category: .automation),
+                      transitionIfPossible(to: .startingMirror, category: .mirroring) else { return }
+                automationWorkspace.startStreaming()
+                transitionIfPossible(to: .connected, category: .mirroring)
+                runnerSetupTask = nil
+                logger.info("iPhone automation and live screen are ready", category: .automation)
             } catch is CancellationError {
                 runnerSetupTask = nil
+                await automationWorkspace.disconnect()
                 runnerSetupManager.stop()
                 transitionIfPossible(to: .runnerBuilt, category: .build)
                 logger.info("Runner setup cancelled", category: .build)
@@ -285,11 +294,15 @@ final class SetupAssistantModel {
     func stopRunner() {
         runnerSetupTask?.cancel()
         runnerSetupTask = nil
-        runnerSetupManager.stop()
-        runnerConnection = nil
         guard transitionIfPossible(to: .stopping, category: .build) else { return }
-        transitionIfPossible(to: .stopped, category: .build)
-        logger.info("Automation runner stopped", category: .build)
+        Task { [weak self] in
+            guard let self else { return }
+            await automationWorkspace.disconnect()
+            runnerSetupManager.stop()
+            runnerConnection = nil
+            transitionIfPossible(to: .stopped, category: .build)
+            logger.info("Automation runner stopped", category: .build)
+        }
     }
 
     private var selectedBuildDevice: Device? {

@@ -6,6 +6,7 @@ import Observation
 final class DependencyContainer {
     let stateMachine: ApplicationStateMachine
     let setupAssistantModel: SetupAssistantModel
+    let automationWorkspace: AutomationWorkspaceModel
     let logger: StructuredLogging
 
     init(
@@ -19,6 +20,7 @@ final class DependencyContainer {
         logger: StructuredLogging
     ) {
         self.stateMachine = stateMachine
+        automationWorkspace = AutomationWorkspaceModel(logger: logger)
         setupAssistantModel = SetupAssistantModel(
             stateMachine: stateMachine,
             environmentChecker: environmentChecker,
@@ -27,6 +29,7 @@ final class DependencyContainer {
             runnerSetupManager: runnerSetupManager,
             installationIdentityProvider: installationIdentityProvider,
             webDriverAgentSourceURL: webDriverAgentSourceURL,
+            automationWorkspace: automationWorkspace,
             logger: logger
         )
         self.logger = logger

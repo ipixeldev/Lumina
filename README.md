@@ -14,7 +14,7 @@
 </p>
 
 > [!IMPORTANT]
-> Lumina is in early development. The app can inspect the Mac developer environment, discover a physical iPhone, build and sign WebDriverAgent, install the runner, launch it through XCTest, and verify its local status endpoint. Physical-device compatibility still varies by Xcode, iOS, signing, and pairing state. Screen mirroring and user input are not implemented yet.
+> Lumina is in early development. The app can complete local runner setup, establish a typed WebDriverAgent session, display a live screenshot view, and send tap, swipe, and Home commands to a connected iPhone. Physical-device compatibility still varies by Xcode, iOS, signing, and pairing state.
 
 ## What Lumina is
 
@@ -79,15 +79,19 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Long-lived XCTest launch with cancellation and actionable failure diagnostics
 - Local WebDriverAgent endpoint discovery through trusted CoreDevice hostnames and WDA launch output
 - Typed `/status` validation that rejects a stale or mismatched runner
+- Typed WebDriverAgent session creation, response validation, and best-effort cleanup
+- Live screenshot view with bounded, backpressure-aware polling and an on-screen FPS indicator
+- Device screen metadata, orientation, and active-application discovery
+- Aspect-fit coordinate mapping for click-to-tap and drag-to-swipe control
+- Home and manual refresh controls
 - Bundled WebDriverAgent BSD license and native acknowledgements screen
 
 ### Planned
 
 - Physical-device validation across supported iOS and Xcode versions
 - Trusted USB/Wi-Fi transport hardening and automatic reconnection
-- Typed WebDriverAgent client and automation session management
-- Screenshot mirroring with bounded buffers and adaptive polling
-- Coordinate mapping, mouse gestures, trackpad input, and keyboard input
+- Higher-performance visual transports and adaptive frame pacing
+- Trackpad scroll, hardware-button shortcuts, and keyboard input
 - Recovery, redacted diagnostics, and release packaging
 
 ## Requirements
@@ -148,6 +152,10 @@ The Xcode project, target, scheme, product, executable, bundle display name, and
 5. Confirm that Lumina reports the iPhone as paired, unlocked, and ready, and that Apple Development signing is ready.
 6. Select **Build signed runner**. Xcode may contact Apple to create or refresh the provisioning profile.
 7. After the build succeeds, select **Install and start runner**. Keep the iPhone connected and unlocked while XCTest starts WebDriverAgent.
+8. Lumina creates the automation session, fetches the first screen, and opens **Device Control** automatically.
+9. Click the displayed iPhone screen to tap, drag across it to swipe, or use **Home** in the toolbar. The view refreshes at a bounded rate and displays the measured frame rate.
+
+The current connection flow requires USB. Trusted Wi-Fi reconnection is planned but is not presented as available until it has been verified reliably across disconnects and runner restarts.
 
 Lumina reports setup failures with a diagnostic code and a specific recovery action. It never accepts trust, Developer Mode, passcode, or Apple ID prompts on the user's behalf.
 
@@ -195,6 +203,7 @@ UI tests require a local development signing identity in some Xcode configuratio
 ```text
 Lumina/
 ├── Application/          App entry point, navigation, dependencies
+├── Automation/           Typed WDA session, screen, and input client
 ├── Domain/               Workflow states, devices, transition rules
 ├── DeviceManagement/     Apple-tool discovery and connection monitoring
 ├── DeveloperEnvironment/ Mac, Xcode, SDK, and signing checks
@@ -203,6 +212,7 @@ Lumina/
 ├── UI/
 │   ├── Welcome/
 │   ├── SetupAssistant/
+│   ├── DeviceControl/
 │   └── About/
 └── Assets.xcassets/
 LuminaTests/               Swift Testing unit and structured-fixture tests
@@ -210,7 +220,7 @@ LuminaUITests/             XCUITest app and opt-in physical-device coverage
 Vendor/WebDriverAgent/      Pinned Appium WebDriverAgent submodule
 ```
 
-Folders for automation, transport, mirroring, input, and security will be introduced only when they contain real, tested implementations.
+Additional transport, mirroring, input, and security folders will be introduced only when they contain real, tested implementations.
 
 ## Security and privacy principles
 

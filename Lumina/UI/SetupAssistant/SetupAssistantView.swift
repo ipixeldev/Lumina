@@ -204,7 +204,7 @@ private struct RunnerBuildView: View {
                         model.cancelRunnerSetup()
                     }
                 } else if let connection = model.runnerConnection {
-                    Label("Automation runner is ready", systemImage: "checkmark.circle.fill")
+                    Label("Lumina is connected to this iPhone", systemImage: "checkmark.circle.fill")
                         .font(.headline)
                         .foregroundStyle(.green)
                     DeviceProperty(label: "Local endpoint", value: connection.endpoint.absoluteString)
@@ -214,6 +214,9 @@ private struct RunnerBuildView: View {
                        let osVersion = connection.status.operatingSystemVersion {
                         DeviceProperty(label: "Device software", value: "\(osName) \(osVersion)")
                     }
+                    Text("Open Device Control in the sidebar to view and control the live screen.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                     Button("Stop runner", role: .destructive) {
                         model.stopRunner()
                     }

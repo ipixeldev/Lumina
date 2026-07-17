@@ -21,8 +21,15 @@ struct AppRootView: View {
                 }
             case .setupAssistant:
                 SetupAssistantView(model: dependencies.setupAssistantModel)
+            case .deviceControl:
+                DeviceControlView(model: dependencies.automationWorkspace)
             case .acknowledgements:
                 AcknowledgementsView()
+            }
+        }
+        .onChange(of: dependencies.stateMachine.state) { _, state in
+            if state == .connected {
+                selection = .deviceControl
             }
         }
     }
