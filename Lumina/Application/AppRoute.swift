@@ -1,6 +1,7 @@
 enum AppRoute: String, CaseIterable, Identifiable {
     case welcome
     case setupAssistant
+    case acknowledgements
 
     var id: Self { self }
 
@@ -8,6 +9,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
         switch self {
         case .welcome: "Welcome"
         case .setupAssistant: "Setup Assistant"
+        case .acknowledgements: "Acknowledgements"
         }
     }
 
@@ -15,6 +17,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
         switch self {
         case .welcome: "sparkles.rectangle.stack"
         case .setupAssistant: "checklist"
+        case .acknowledgements: "doc.text"
         }
     }
 }

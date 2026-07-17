@@ -14,6 +14,7 @@ nonisolated enum ApplicationState: Equatable, Sendable {
     case runnerNotInstalled
     case runnerBuilding(progress: Double?)
     case runnerBuildFailed(message: String)
+    case runnerBuilt
     case runnerInstalling(progress: Double?)
     case runnerInstallFailed(message: String)
     case runnerLaunching
@@ -57,6 +58,8 @@ nonisolated enum ApplicationState: Equatable, Sendable {
             StatePresentation(title: "Building automation runner", explanation: "Xcode is compiling and signing the local XCTest runner.", actions: [.cancel], canRecoverAutomatically: false, progress: progress)
         case let .runnerBuildFailed(message):
             StatePresentation(title: "Runner build failed", explanation: message, actions: [.retry, .openDiagnostics], canRecoverAutomatically: false, diagnostics: ["MB-BUILD-004"])
+        case .runnerBuilt:
+            StatePresentation(title: "Runner ready to install", explanation: "The signed WebDriverAgent runner was built and its signature was verified locally.", actions: [.continueSetup], canRecoverAutomatically: false)
         case let .runnerInstalling(progress):
             StatePresentation(title: "Installing automation runner", explanation: "Installing the signed runner on the connected iPhone.", actions: [.cancel], canRecoverAutomatically: false, progress: progress)
         case let .runnerInstallFailed(message):

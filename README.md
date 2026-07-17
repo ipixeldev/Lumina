@@ -18,7 +18,7 @@
 </picture>
 
 > [!IMPORTANT]
-> MirrorBridge is in early development. The app can inspect the Mac developer environment and discover a connected physical iPhone using structured Apple tooling. It does **not yet build WebDriverAgent, install an automation runner, mirror a screen, or send control commands**.
+> MirrorBridge is in early development. The app can inspect the Mac developer environment, discover a physical iPhone, and build a uniquely identified signed WebDriverAgent runner. It does **not yet install or launch the runner, mirror a screen, or send control commands**.
 
 ## What MirrorBridge is
 
@@ -73,11 +73,16 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Real USB connection, pairing, Developer Mode, current lock, and network-tunnel status
 - Partially redacted device identifiers and continuous connection-change monitoring with bounded backoff
 - Trust, unlock, and Developer Mode guidance that preserves required on-device confirmations
+- Appium WebDriverAgent v15.1.6 pinned as a Git submodule at commit `5f8280e761dc0b5b9b28368e63a8f0cc8d868346`
+- Stable per-install runner bundle identifiers backed by a random Keychain identity
+- Automatic selection of a usable Apple Development team without hard-coded signing data
+- Cancellable `xcodebuild build-for-testing` with result bundles and actionable failure classification
+- Local Security.framework verification of the produced runner signature, team, and identifier
+- Bundled WebDriverAgent BSD license and native acknowledgements screen
 
 ### Planned
 
-- Pinned, licensed WebDriverAgent integration
-- Runner signing, building, installation, and launch
+- Runner installation and launch
 - Loopback-only USB transport and trusted Wi-Fi reconnection
 - Typed WebDriverAgent client and automation session management
 - Screenshot mirroring with bounded buffers and adaptive polling
@@ -108,9 +113,15 @@ MirrorBridge will never bypass passcodes, Face ID, Touch ID, Activation Lock, de
 There is no downloadable release build yet. Build the development version from Xcode:
 
 ```bash
-git clone https://github.com/ipixeldev/Lumina.git
+git clone --recurse-submodules https://github.com/ipixeldev/Lumina.git
 cd Lumina
 open Lumina.xcodeproj
+```
+
+If the repository was cloned previously, initialize the pinned WebDriverAgent source:
+
+```bash
+git submodule update --init --recursive
 ```
 
 In Xcode:
@@ -171,14 +182,17 @@ Lumina/
 ├── Domain/               Workflow states, devices, transition rules
 ├── DeviceManagement/     Apple-tool discovery and connection monitoring
 ├── DeveloperEnvironment/ Mac, Xcode, SDK, and signing checks
+├── RunnerManagement/     Pinned-source validation, build, errors, signatures
 ├── Diagnostics/          Structured local logging
 ├── UI/
 │   ├── Welcome/
-│   └── SetupAssistant/
+│   ├── SetupAssistant/
+│   └── About/
 └── Assets.xcassets/
 LuminaTests/               Swift Testing unit and structured-fixture tests
 LuminaUITests/             XCUITest app and opt-in physical-device coverage
 Documentation/Images/      README screenshots
+Vendor/WebDriverAgent/      Pinned Appium WebDriverAgent submodule
 ```
 
 Folders for automation, transport, mirroring, input, and security will be introduced only when they contain real, tested implementations.
@@ -208,6 +222,14 @@ The finished product will still be constrained by Apple's developer automation s
 - MirrorBridge cannot bypass passcodes, biometrics, Activation Lock, or physical confirmations.
 - Compatibility will vary across Xcode, iOS, device models, and the selected WebDriverAgent version.
 
+## WebDriverAgent acknowledgement
+
+MirrorBridge uses [Appium WebDriverAgent](https://github.com/appium/WebDriverAgent), version 15.1.6 pinned to commit `5f8280e761dc0b5b9b28368e63a8f0cc8d868346`. The upstream repository is actively maintained and its `LICENSE` identifies WebDriverAgent as BSD-licensed. MirrorBridge preserves that license text in the application bundle and displays it in the Acknowledgements screen.
+
+The pinned source defines the route foundation used by later automation work, including status and health checks, session creation/deletion, application actions, orientation, screenshots, W3C touch actions, and coordinate gestures. MirrorBridge does not assume route compatibility with a different WebDriverAgent revision.
+
+MirrorBridge is not affiliated with or endorsed by Appium, Facebook, or Apple.
+
 ## Contributing
 
 Contributions are welcome once the repository has an explicit open-source license.
@@ -222,14 +244,8 @@ Contributions are welcome once the repository has an explicit open-source licens
 
 Physical-device behavior must not be described as working until it has been tested on a real iPhone.
 
-## WebDriverAgent and third-party code
-
-WebDriverAgent is not currently vendored or downloaded by this repository. Before integration, the project will select a maintained upstream, pin an exact revision, verify its license, preserve notices, document used routes, and keep modifications in an identified patch or fork location.
-
-MirrorBridge is not affiliated with or endorsed by Apple. Apple, macOS, iPhone, Xcode, and related marks belong to Apple Inc.
-
 ## License
 
-An open-source license has not been selected yet. Until a `LICENSE` file is added, the repository is publicly readable but does not grant permission to copy, modify, or redistribute the code.
+MirrorBridge is open-source software released under the [MIT License](LICENSE).
 
-The project owner should choose a license before accepting external contributions. Common options include permissive licenses such as MIT or Apache-2.0, or a copyleft license such as GPL-3.0.
+The pinned WebDriverAgent dependency remains subject to its own bundled license and copyright notices. MirrorBridge is not affiliated with or endorsed by Apple. Apple, macOS, iPhone, Xcode, and related marks belong to Apple Inc.

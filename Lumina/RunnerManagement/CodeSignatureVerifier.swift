@@ -1,0 +1,38 @@
+import Foundation
+import Security
+
+nonisolated protocol CodeSignatureVerifying: Sendable {
+    func verify(appURL: URL, expectedTeamIdentifier: String, expectedBundleIdentifier: String) throws -> RunnerCodeSignature
+}
+
+nonisolated struct SecurityCodeSignatureVerifier: CodeSignatureVerifying {
+    func verify(appURL: URL, expectedTeamIdentifier: String, expectedBundleIdentifier: String) throws -> RunnerCodeSignature {
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(appURL as CFURL, [], &staticCode) == errSecSuccess,
+              let staticCode,
+              SecStaticCodeCheckValidity(staticCode, [], nil) == errSecSuccess else {
+            throw RunnerBuildError.invalidSignature(Self.issue("The runner code signature is invalid"))
+        }
+
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
+              let values = information as? [CFString: Any],
+              let identifier = values[kSecCodeInfoIdentifier] as? String,
+              let teamIdentifier = values[kSecCodeInfoTeamIdentifier] as? String,
+              teamIdentifier == expectedTeamIdentifier,
+              identifier == expectedBundleIdentifier else {
+            throw RunnerBuildError.invalidSignature(Self.issue("The runner signature does not match the selected team or bundle"))
+        }
+        return RunnerCodeSignature(identifier: identifier, teamIdentifier: teamIdentifier)
+    }
+
+    private static func issue(_ title: String) -> RunnerBuildIssue {
+        RunnerBuildIssue(
+            code: "MB-BUILD-005",
+            title: title,
+            explanation: "MirrorBridge refuses to install a runner whose local signature does not match its build configuration.",
+            recovery: "Rebuild with a current Apple Development identity and inspect Xcode signing diagnostics.",
+            retryIsSafe: true
+        )
+    }
+}

@@ -23,6 +23,9 @@ struct SetupAssistantView: View {
 
                 if let snapshot = model.deviceSnapshot {
                     DeviceDiscoveryView(snapshot: snapshot, error: model.deviceDiscoveryError)
+                    if !snapshot.devices.isEmpty {
+                        RunnerBuildView(model: model)
+                    }
                 } else if model.isMonitoringDevices {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 10) {
@@ -141,6 +144,10 @@ struct SetupAssistantView: View {
                 case .unknown: .warning
                 }
             }
+        case .buildRunner:
+            if model.runnerBuildResult != nil { return .passed }
+            if model.runnerBuildIssue != nil { return .failed }
+            return nil
         default:
             return nil
         }
@@ -149,6 +156,75 @@ struct SetupAssistantView: View {
     private func deviceStatus(_ status: (Device) -> EnvironmentCheckStatus) -> EnvironmentCheckStatus? {
         guard let device = model.deviceSnapshot?.devices.first else { return nil }
         return status(device)
+    }
+}
+
+private struct RunnerBuildView: View {
+    @Bindable var model: SetupAssistantModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("WebDriverAgent runner")
+                        .font(.title2.bold())
+                    Text("Appium WebDriverAgent v\(WebDriverAgentPin.version) · pinned source")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Label("BSD licensed", systemImage: "checkmark.shield")
+                    .foregroundStyle(.secondary)
+            }
+
+            if let bundleIdentifier = model.runnerBundleIdentifier {
+                DeviceProperty(label: "Unique runner identifier", value: bundleIdentifier + ".xctrunner")
+                    .textSelection(.enabled)
+            }
+
+            if model.isBuildingRunner {
+                ProgressView("Building and signing with Xcode…")
+                Button("Cancel build", role: .cancel) {
+                    model.cancelRunnerBuild()
+                }
+            } else if let result = model.runnerBuildResult {
+                Label("Signed runner verified for team \(result.signature.teamIdentifier)", systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(.green)
+                Text("Product: \(result.productURL.lastPathComponent)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Installation and launch begin in the next phase.")
+                    .font(.callout)
+            } else {
+                Button("Build signed runner") {
+                    model.buildRunner()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!model.canBuildRunner)
+                .accessibilityIdentifier("buildRunnerButton")
+                Text("This user-triggered build may contact Apple through Xcode to create or refresh development provisioning. No source or binary is downloaded by this action.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let issue = model.runnerBuildIssue {
+                VStack(alignment: .leading, spacing: 5) {
+                    Label(issue.title, systemImage: "xmark.circle.fill")
+                        .font(.headline)
+                        .foregroundStyle(.red)
+                    Text(issue.explanation)
+                    Text(issue.recovery)
+                        .foregroundStyle(.secondary)
+                    Text(issue.code)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(16)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("runnerBuildSection")
     }
 }
 

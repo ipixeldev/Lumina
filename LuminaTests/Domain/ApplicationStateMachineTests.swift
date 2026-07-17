@@ -72,6 +72,17 @@ struct ApplicationStateMachineTests {
 
         #expect(machine.state == .noDevice)
     }
+
+    @Test("A verified runner advances from building to ready")
+    func verifiedRunnerTransition() throws {
+        let machine = ApplicationStateMachine(initialState: .runnerNotInstalled, logger: TestLogger())
+
+        try machine.transition(to: .runnerBuilding(progress: nil))
+        try machine.transition(to: .runnerBuilt)
+
+        #expect(machine.state == .runnerBuilt)
+        #expect(machine.state.presentation.actions == [.continueSetup])
+    }
 }
 
 private struct TestLogger: StructuredLogging {

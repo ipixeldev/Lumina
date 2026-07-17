@@ -21,6 +21,8 @@ struct AppRootView: View {
                 }
             case .setupAssistant:
                 SetupAssistantView(model: dependencies.setupAssistantModel)
+            case .acknowledgements:
+                AcknowledgementsView()
             }
         }
     }
