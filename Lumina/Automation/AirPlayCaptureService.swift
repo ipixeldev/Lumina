@@ -1,3 +1,4 @@
+import AppKit
 @preconcurrency import CoreImage
 @preconcurrency import CoreMedia
 @preconcurrency import ScreenCaptureKit
@@ -13,11 +14,8 @@ final class AirPlayCaptureService: NSObject, @unchecked Sendable {
 
     override init() {
         super.init()
+        configurePicker()
         let picker = SCContentSharingPicker.shared
-        var configuration = picker.defaultConfiguration
-        configuration.allowedPickerModes = [.singleWindow, .singleDisplay]
-        configuration.allowsChangingSelectedContent = true
-        picker.defaultConfiguration = configuration
         picker.maximumStreamCount = 1
         picker.add(self)
         picker.isActive = true
@@ -25,7 +23,25 @@ final class AirPlayCaptureService: NSObject, @unchecked Sendable {
 
     @MainActor
     func chooseMirroredContent() {
-        SCContentSharingPicker.shared.present(using: .window)
+        configurePicker()
+        // Present on the next run-loop pass. Menu actions can otherwise leave the
+        // system picker attached to a disappearing menu window.
+        DispatchQueue.main.async {
+            SCContentSharingPicker.shared.present(using: .window)
+        }
+    }
+
+    @MainActor
+    private func configurePicker() {
+        let picker = SCContentSharingPicker.shared
+        var configuration = picker.defaultConfiguration
+        configuration.allowedPickerModes = [.singleWindow]
+        configuration.allowsChangingSelectedContent = true
+        configuration.excludedBundleIDs = [Bundle.main.bundleIdentifier].compactMap { $0 }
+        configuration.excludedWindowIDs = NSApplication.shared.windows
+            .map(\.windowNumber)
+            .filter { $0 > 0 }
+        picker.defaultConfiguration = configuration
     }
 
     func stop() {

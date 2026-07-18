@@ -80,7 +80,20 @@ private final class RequestRecorder: @unchecked Sendable {
     }
 
     func append(_ request: URLRequest) {
-        lock.withLock { requests.append(request) }
+        var recorded = request
+        if recorded.httpBody == nil, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var body = Data()
+            var buffer = [UInt8](repeating: 0, count: 4_096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                guard count > 0 else { break }
+                body.append(contentsOf: buffer.prefix(count))
+            }
+            if !body.isEmpty { recorded.httpBody = body }
+        }
+        lock.withLock { requests.append(recorded) }
     }
 
     func request(for path: String) -> URLRequest? {

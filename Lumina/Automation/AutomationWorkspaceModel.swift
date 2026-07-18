@@ -13,6 +13,8 @@ nonisolated enum VisualSource: String, CaseIterable, Identifiable, Sendable {
 @MainActor
 @Observable
 final class AutomationWorkspaceModel {
+    private static let visualSourceKey = "preferredVisualSource"
+
     private(set) var isConnected = false
     private(set) var isStreaming = false
     private(set) var screenshotData: Data?
@@ -23,7 +25,8 @@ final class AutomationWorkspaceModel {
     private(set) var framesPerSecond = 0.0
     private(set) var issue: String?
     private(set) var streamProfile: StreamQualityProfile = .balanced
-    private(set) var visualSource: VisualSource = .direct
+    private(set) var visualSource: VisualSource
+    private(set) var hasSelectedVisualSource: Bool
     private(set) var isChoosingAirPlaySource = false
 
     private let logger: StructuredLogging
@@ -38,6 +41,14 @@ final class AutomationWorkspaceModel {
 
     init(logger: StructuredLogging) {
         self.logger = logger
+        if let storedValue = UserDefaults.standard.string(forKey: Self.visualSourceKey),
+           let storedSource = VisualSource(rawValue: storedValue) {
+            visualSource = storedSource
+            hasSelectedVisualSource = true
+        } else {
+            visualSource = .direct
+            hasSelectedVisualSource = false
+        }
         airPlayCapture = AirPlayCaptureService()
         airPlayCapture.onFrame = { [weak self] frame in
             Task { @MainActor in
@@ -140,6 +151,8 @@ final class AutomationWorkspaceModel {
     }
 
     func selectVisualSource(_ source: VisualSource) {
+        hasSelectedVisualSource = true
+        UserDefaults.standard.set(source.rawValue, forKey: Self.visualSourceKey)
         guard visualSource != source else { return }
         stopStreaming()
         visualSource = source

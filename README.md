@@ -81,7 +81,7 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Typed `/status` validation that rejects a stale or mismatched runner
 - Typed WebDriverAgent session creation, response validation, and best-effort cleanup
 - Automatic reuse of a locally cached runner after signature, team, and bundle verification
-- Installed-runner detection that skips redundant installation on a previously prepared iPhone
+- Persistent installed-runner detection that skips redundant installation on a previously prepared iPhone
 - Automatic build, install when needed, launch, session creation, and device-window opening after the requirements check
 - Dedicated local MJPEG stream with newest-frame buffering, selectable quality profiles, and screenshot fallback
 - Balanced direct-video validation at 24–28 FPS on an iPhone 15 Plus, up from the previous 5 FPS polling path
@@ -90,16 +90,18 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Device screen metadata, orientation, and active-application discovery
 - Aspect-fit coordinate mapping for click-to-tap and drag-to-swipe control
 - Overlay controls for Wake or Unlock, Home, local view rotation, and Volume Up
-- Three-dot menu for secondary controls, measured FPS, video source, direct-stream quality, refresh, and Privacy Blur
+- Compact Simulator-style title bar with primary controls and measured FPS
+- Three-dot menu for secondary controls, direct-stream quality, refresh, and Privacy Blur
 - Reliable local view rotation with rotated touch-coordinate mapping, plus a separate best-effort device-orientation request
 - One-click runner reconnection without rebuilding or reinstalling after a dropped session
+- Automatic reconnection when a usable paired Wi-Fi developer tunnel returns
 - Paired Wi-Fi device discovery and launch support through Apple's CoreDevice/Xcode transport
+- Menu-bar presence while connected so the setup window can stay out of the way
 - Bundled WebDriverAgent BSD license and native acknowledgements screen
 
 ### Planned
 
 - Physical-device validation across supported iOS and Xcode versions
-- Automatic reconnection attempts after transient Wi-Fi loss
 - Adaptive quality based on measured device and network load
 - Trackpad scroll, keyboard input, and configurable shortcuts
 - Recovery, redacted diagnostics, and release packaging
@@ -158,19 +160,19 @@ The Xcode project, target, scheme, product, executable, bundle display name, and
 1. Connect the iPhone over USB, unlock it, and accept **Trust This Computer** if prompted.
 2. Enable **Developer Mode** under **Settings → Privacy & Security** on the iPhone, then complete the required restart and on-device confirmation.
 3. In Xcode, open **Settings → Accounts** and sign in with the Apple ID associated with your development team.
-4. Open Lumina, choose **Set up an iPhone**, then select **Check this Mac**.
+4. Open Lumina, choose **Set up an iPhone**, select either the **Direct** or **AirPlay** card, then select **Check this Mac**.
 5. Confirm that Lumina reports the iPhone as paired, unlocked, and ready, and that Apple Development signing is ready.
 6. Lumina automatically verifies and reuses a cached signed runner when possible. On the first run—or after signing/source changes—it builds a fresh runner and Xcode may contact Apple to create or refresh the provisioning profile.
 7. Lumina checks whether that exact runner is already installed. It installs only when needed, then starts XCTest and creates the automation session.
-8. The iPhone screen opens automatically in a separate, device-sized window. Click to tap and drag to swipe.
-9. The overlay keeps Wake or Unlock, Home, Rotate View, and Volume Up immediately available. Use the three-dot menu for secondary actions, Privacy Blur, quality, video source, and measured FPS.
+8. The iPhone screen opens automatically in a separate, device-sized window, while the setup window closes and Lumina remains available from the macOS menu bar. Click to tap and drag to swipe.
+9. The compact title bar keeps Wake or Unlock, Home, Rotate View, Volume Up, reconnect status, and measured FPS visible. Use the three-dot menu for secondary actions, Privacy Blur, and direct-stream quality.
 
 ### Video source and quality
 
 Lumina offers two visual sources while keeping the same local XCUITest control channel:
 
-- **Direct** is the default. It uses WebDriverAgent's MJPEG server and works over USB or the trusted Xcode Wi-Fi tunnel.
-- **AirPlay-assisted** is experimental. The iPhone mirrors to macOS's built-in AirPlay Receiver, and Lumina captures only the window or display you select through Apple's ScreenCaptureKit picker.
+- **Direct** uses WebDriverAgent's MJPEG server and works over USB or the trusted Xcode Wi-Fi tunnel.
+- **AirPlay-assisted** is experimental. The iPhone mirrors to macOS's built-in AirPlay Receiver, and Lumina captures only the mirrored window you select through Apple's ScreenCaptureKit picker.
 
 Direct video includes three presets:
 
@@ -185,11 +187,13 @@ To use AirPlay-assisted video:
 1. On the Mac, enable **System Settings → General → AirDrop & Handoff → AirPlay Receiver**.
 2. Keep the Mac and iPhone on the same Wi-Fi network.
 3. On the iPhone, open Control Center, choose **Screen Mirroring**, and select the Mac.
-4. In Lumina's three-dot menu, choose **Video Source → AirPlay-assisted**.
-5. In the macOS picker, select the AirPlay mirrored window or display.
+4. Before connecting in Lumina, select the **AirPlay** card and complete the normal requirements check.
+5. In the iPhone window, choose **Choose Mirrored Window**, then select the AirPlay mirrored window in the macOS picker.
 6. Approve Screen Recording permission if macOS requests it. macOS may require Lumina to be restarted after the first approval.
 
 AirPlay-assisted mode does not turn Lumina itself into an AirPlay receiver. Apple does not expose a public API for third-party apps to advertise a custom receiver; Lumina deliberately uses the system receiver and public capture picker instead.
+
+For safety, Lumina excludes its own windows from the picker. This prevents recursive self-capture and keeps switching to AirPlay from crashing the app.
 
 ### Connect over Wi-Fi
 

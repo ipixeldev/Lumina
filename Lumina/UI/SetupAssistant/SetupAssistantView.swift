@@ -15,6 +15,8 @@ struct SetupAssistantView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                videoMethodPicker
+
                 stateCard
 
                 if let report = model.environmentReport {
@@ -23,7 +25,7 @@ struct SetupAssistantView: View {
 
                 if let snapshot = model.deviceSnapshot {
                     DeviceDiscoveryView(snapshot: snapshot, error: model.deviceDiscoveryError)
-                    if !snapshot.devices.isEmpty {
+                    if model.hasReadyDevice {
                         RunnerBuildView(model: model)
                     }
                 } else if model.isMonitoringDevices {
@@ -63,6 +65,51 @@ struct SetupAssistantView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("Setup Assistant")
+    }
+
+    private var videoMethodPicker: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Choose video method")
+                        .font(.title2.bold())
+                    Text("Choose before Lumina connects. Controls use the same signed local runner with either method.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+
+            HStack(spacing: 14) {
+                VideoMethodCard(
+                    title: "Direct",
+                    subtitle: "USB or paired Wi-Fi",
+                    detail: "Fast setup with interactive device control and adjustable stream quality.",
+                    systemImage: "cable.connector",
+                    isSelected: model.hasSelectedVisualSource && model.visualSource == .direct
+                ) {
+                    model.selectVisualSource(.direct)
+                }
+                .disabled(!model.canSelectVisualSource)
+                VideoMethodCard(
+                    title: "AirPlay",
+                    subtitle: "High-quality video",
+                    detail: "Mirror with macOS AirPlay Receiver while Lumina provides mouse controls.",
+                    systemImage: "airplayvideo",
+                    isSelected: model.hasSelectedVisualSource && model.visualSource == .airPlay
+                ) {
+                    model.selectVisualSource(.airPlay)
+                }
+                .disabled(!model.canSelectVisualSource)
+            }
+
+            if !model.hasSelectedVisualSource {
+                Label("Choose a method to continue.", systemImage: "arrow.up")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .accessibilityIdentifier("videoMethodPicker")
     }
 
     private var stateCard: some View {
@@ -110,7 +157,8 @@ struct SetupAssistantView: View {
     }
 
     private var canStartEnvironmentCheck: Bool {
-        switch model.stateMachine.state {
+        guard model.hasSelectedVisualSource else { return false }
+        return switch model.stateMachine.state {
         case .appStarting, .stopped, .xcodeMissing, .sdkMissing, .certificateMissing, .noDevice, .requiresUserAction:
             true
         default:
@@ -163,6 +211,53 @@ struct SetupAssistantView: View {
     }
 }
 
+private struct VideoMethodCard: View {
+    let title: String
+    let subtitle: String
+    let detail: String
+    let systemImage: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.white : Color.accentColor)
+                    .frame(width: 48, height: 48)
+                    .background(isSelected ? Color.accentColor : Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(title).font(.headline)
+                        Spacer()
+                        if isSelected {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                    Text(subtitle)
+                        .font(.callout.bold())
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 122, alignment: .topLeading)
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.18), lineWidth: isSelected ? 2 : 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title), \(subtitle)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
 private struct RunnerBuildView: View {
     @Bindable var model: SetupAssistantModel
 
@@ -187,7 +282,7 @@ private struct RunnerBuildView: View {
             }
 
             if model.isBuildingRunner {
-                ProgressView("Building and signing with Xcode…")
+                ProgressView(model.isCheckingRunnerCache ? "Checking the reusable signed runner…" : "Building and signing with Xcode…")
                 Button("Cancel build", role: .cancel) {
                     model.cancelRunnerBuild()
                 }
@@ -221,7 +316,7 @@ private struct RunnerBuildView: View {
                         model.stopRunner()
                     }
                 } else {
-                    Button("Install and start runner") {
+                    Button(model.runnerIsInstalled == true ? "Start installed runner" : "Install and start runner") {
                         model.installAndLaunchRunner()
                     }
                     .buttonStyle(.borderedProminent)
@@ -278,7 +373,8 @@ private struct RunnerBuildView: View {
     }
 
     private var setupProgressTitle: String {
-        switch model.stateMachine.state {
+        if model.runnerIsInstalled == nil { return "Checking for the installed runner…" }
+        return switch model.stateMachine.state {
         case .runnerInstalling:
             "Installing the signed runner…"
         case .runnerLaunching:
@@ -286,7 +382,7 @@ private struct RunnerBuildView: View {
         case .connectingAutomation:
             "Checking the local automation endpoint…"
         default:
-            "Preparing the automation runner…"
+            model.runnerIsInstalled == true ? "Starting the installed runner…" : "Preparing the automation runner…"
         }
     }
 }
@@ -381,6 +477,12 @@ private struct DeviceCard: View {
                 .foregroundStyle(.orange)
         } else if device.lockState == .locked {
             Label("Unlock the iPhone physically to continue setup.", systemImage: "lock.fill")
+                .foregroundStyle(.orange)
+        } else if !device.developerServicesAvailable {
+            Label("The developer connection is unavailable. Reconnect USB once and enable Connect via network for this iPhone in Xcode.", systemImage: "wifi.exclamationmark")
+                .foregroundStyle(.orange)
+        } else if device.connectionTransport == .wifi && (!device.isAvailableOverNetwork || device.developerConnectionHosts.isEmpty) {
+            Label("This paired iPhone is visible, but its Wi-Fi developer tunnel is not ready yet.", systemImage: "wifi.exclamationmark")
                 .foregroundStyle(.orange)
         } else {
             Label("This iPhone is ready for runner setup.", systemImage: "checkmark.circle.fill")

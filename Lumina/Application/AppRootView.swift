@@ -1,7 +1,9 @@
+import AppKit
 import SwiftUI
 
 struct AppRootView: View {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
     @Bindable var dependencies: DependencyContainer
     @State private var selection: AppRoute? = .welcome
 
@@ -34,6 +36,10 @@ struct AppRootView: View {
             if state == .connected {
                 selection = .deviceControl
                 openWindow(id: "device-control")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    dismissWindow(id: "main")
+                    NSApplication.shared.setActivationPolicy(.accessory)
+                }
             }
         }
     }

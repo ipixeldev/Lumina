@@ -13,6 +13,8 @@ final class SetupAssistantModel {
     private(set) var runnerConnection: RunnerConnection?
     private(set) var runnerSetupIssue: RunnerSetupIssue?
     private(set) var lastUnexpectedError: String?
+    private(set) var runnerIsInstalled: Bool?
+    private(set) var isCheckingRunnerCache = false
 
     private let environmentChecker: any EnvironmentChecking
     private let deviceConnectionMonitor: any DeviceConnectionMonitoring
@@ -55,7 +57,7 @@ final class SetupAssistantModel {
     var isChecking: Bool { checkTask != nil }
 
     func checkThisMac() {
-        guard checkTask == nil else { return }
+        guard checkTask == nil, hasSelectedVisualSource else { return }
         do {
             try stateMachine.transition(to: .checkingEnvironment)
         } catch {
@@ -106,6 +108,21 @@ final class SetupAssistantModel {
     var isBuildingRunner: Bool { runnerBuildTask != nil }
     var isSettingUpRunner: Bool { runnerSetupTask != nil }
     var isReconnecting: Bool { reconnectTask != nil }
+    var visualSource: VisualSource { automationWorkspace.visualSource }
+    var hasSelectedVisualSource: Bool { automationWorkspace.hasSelectedVisualSource }
+    var hasReadyDevice: Bool { selectedBuildDevice != nil }
+    var canSelectVisualSource: Bool {
+        switch stateMachine.state {
+        case .appStarting, .stopped, .xcodeMissing, .sdkMissing, .certificateMissing, .noDevice, .requiresUserAction:
+            true
+        default:
+            false
+        }
+    }
+
+    func selectVisualSource(_ source: VisualSource) {
+        automationWorkspace.selectVisualSource(source)
+    }
 
     var canBuildRunner: Bool {
         guard !isBuildingRunner,
@@ -164,6 +181,7 @@ final class SetupAssistantModel {
         guard runnerBuildTask == nil, let configuration = runnerBuildConfiguration() else { return }
         runnerBuildIssue = nil
         runnerBuildResult = nil
+        isCheckingRunnerCache = reuseCache
         guard transitionToBuilding() else { return }
         logger.info(reuseCache ? "Looking for a reusable signed runner" : "WebDriverAgent build started", category: .build)
 
@@ -180,20 +198,24 @@ final class SetupAssistantModel {
                 try Task.checkCancellation()
                 runnerBuildResult = result
                 runnerBuildTask = nil
+                isCheckingRunnerCache = false
                 try stateMachine.transition(to: .runnerBuilt)
                 logger.info(cached == nil ? "WebDriverAgent build and signature verification completed" : "Reusable signed runner verified", category: .build)
                 if continueAutomatically { installAndLaunchRunner() }
             } catch is CancellationError {
                 runnerBuildTask = nil
+                isCheckingRunnerCache = false
                 transitionIfPossible(to: .runnerNotInstalled, category: .build)
                 logger.info("WebDriverAgent build cancelled", category: .build)
             } catch let error as RunnerBuildError {
                 runnerBuildTask = nil
+                isCheckingRunnerCache = false
                 runnerBuildIssue = error.issue
                 transitionIfPossible(to: .runnerBuildFailed(message: error.issue.explanation), category: .build)
                 logger.error("WebDriverAgent build failed with \(error.issue.code)", category: .build)
             } catch {
                 runnerBuildTask = nil
+                isCheckingRunnerCache = false
                 let issue = BuildLogParser.issue(for: error.localizedDescription)
                 runnerBuildIssue = issue
                 transitionIfPossible(to: .runnerBuildFailed(message: issue.explanation), category: .build)
@@ -221,10 +243,16 @@ final class SetupAssistantModel {
         lastRunnerSetupConfiguration = configuration
         runnerConnection = nil
         runnerSetupIssue = nil
+        runnerIsInstalled = nil
         runnerSetupTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let installed = await runnerSetupManager.isInstalled(configuration: configuration)
+                let markerKey = installationMarkerKey(for: configuration)
+                var installed = UserDefaults.standard.bool(forKey: markerKey)
+                if !installed {
+                    installed = await runnerSetupManager.isInstalled(configuration: configuration)
+                }
+                runnerIsInstalled = installed
                 if !installed {
                     guard transitionIfPossible(to: .runnerInstalling(progress: nil), category: .build) else {
                         runnerSetupTask = nil
@@ -233,6 +261,10 @@ final class SetupAssistantModel {
                     logger.info("WebDriverAgent installation started", category: .build)
                     try await runnerSetupManager.install(configuration: configuration)
                     try Task.checkCancellation()
+                    UserDefaults.standard.set(true, forKey: markerKey)
+                    runnerIsInstalled = true
+                } else {
+                    UserDefaults.standard.set(true, forKey: markerKey)
                 }
                 guard transitionIfPossible(to: .runnerLaunching, category: .build) else {
                     runnerSetupTask = nil
@@ -350,7 +382,12 @@ final class SetupAssistantModel {
         let readyDevices = deviceSnapshot?.devices.filter {
                 $0.pairingState == .paired &&
                 $0.developerModeState == .enabled &&
-                $0.lockState != .locked
+                $0.lockState != .locked &&
+                $0.developerServicesAvailable &&
+                ($0.connectionTransport == .usb ||
+                    ($0.connectionTransport == .wifi &&
+                        $0.isAvailableOverNetwork &&
+                        !$0.developerConnectionHosts.isEmpty))
         } ?? []
         return readyDevices.first(where: { $0.connectionTransport == .usb })
             ?? readyDevices.first(where: { $0.connectionTransport == .wifi })
@@ -386,6 +423,19 @@ final class SetupAssistantModel {
     }
 
     private func updateApplicationState(for devices: [Device]) {
+        refreshRunnerConfigurationForCurrentDevice()
+
+        if stateMachine.state == .connected {
+            if selectedBuildDevice != nil { return }
+            transitionIfPossible(to: .temporarilyDisconnected, category: .device)
+            return
+        }
+
+        if stateMachine.state == .temporarilyDisconnected, selectedBuildDevice != nil {
+            reconnectRunner()
+            return
+        }
+
         let nextState: ApplicationState
         if let device = devices.first(where: { $0.connectionTransport == .usb }) ?? devices.first {
             if device.pairingState == .unpaired {
@@ -416,6 +466,7 @@ final class SetupAssistantModel {
 
     private func beginAutomaticSetupIfNeeded() {
         guard ProcessInfo.processInfo.environment["LUMINA_DISABLE_AUTOSTART"] != "1",
+              hasSelectedVisualSource,
               let device = selectedBuildDevice,
               automaticStartAttemptedDeviceID != device.id,
               runnerBuildTask == nil,
@@ -423,6 +474,22 @@ final class SetupAssistantModel {
               stateMachine.state == .deviceConnectedUSB || stateMachine.state == .deviceConnectedWiFi else { return }
         automaticStartAttemptedDeviceID = device.id
         startRunnerBuild(reuseCache: true, continueAutomatically: true)
+    }
+
+    private func refreshRunnerConfigurationForCurrentDevice() {
+        guard let buildResult = runnerBuildResult,
+              let device = selectedBuildDevice else { return }
+        lastRunnerSetupConfiguration = RunnerSetupConfiguration(
+            deviceIdentifier: device.id,
+            productURL: buildResult.productURL,
+            xctestrunURL: buildResult.xctestrunURL,
+            bundleIdentifier: buildResult.bundleIdentifier,
+            developerConnectionHosts: device.developerConnectionHosts
+        )
+    }
+
+    private func installationMarkerKey(for configuration: RunnerSetupConfiguration) -> String {
+        "installedRunner.\(configuration.deviceIdentifier).\(configuration.bundleIdentifier)"
     }
 
     private func runnerBuildConfiguration() -> RunnerBuildConfiguration? {

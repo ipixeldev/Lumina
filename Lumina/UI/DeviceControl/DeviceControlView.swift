@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 
 struct DeviceControlView: View {
+    private let toolbarHeight: CGFloat = 34
+
     @Bindable var model: AutomationWorkspaceModel
     let reconnect: () -> Void
     let isReconnecting: Bool
@@ -27,6 +29,7 @@ struct DeviceControlView: View {
                 unavailable
             }
         }
+        .ignoresSafeArea(.container, edges: .top)
         .onAppear {
             if model.isConnected, model.visualSource == .direct { model.startStreaming() }
         }
@@ -65,8 +68,8 @@ struct DeviceControlView: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 5) {
-            Spacer(minLength: 70)
+        HStack(spacing: 2) {
+            Spacer(minLength: 74)
             controlButton("Wake or Unlock", systemImage: "lock.open", action: model.wakeOrUnlock)
             controlButton("Home", systemImage: "house", action: model.goHome)
             controlButton("Rotate View", systemImage: "rotate.right") {
@@ -77,17 +80,23 @@ struct DeviceControlView: View {
                 controlButton("Reconnect", systemImage: "arrow.trianglehead.2.clockwise.rotate.90", action: reconnect)
                     .disabled(isReconnecting)
             }
+            Text(model.isStreaming ? "\(Int(model.framesPerSecond.rounded())) FPS" : "— FPS")
+                .font(.caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .frame(minWidth: 39)
             controlsMenu
         }
-        .padding(.horizontal, 7)
-        .frame(height: 46)
-        .background(.ultraThinMaterial)
+        .padding(.horizontal, 5)
+        .frame(height: toolbarHeight)
+        .background(Color(red: 0.025, green: 0.34, blue: 0.50))
     }
 
     private func controlButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .frame(width: 24, height: 24)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 21, height: 21)
         }
         .buttonStyle(.plain)
         .help(title)
@@ -117,19 +126,8 @@ struct DeviceControlView: View {
                 }
             }
 
-            Section("Video Source") {
-                ForEach(VisualSource.allCases) { source in
-                    Button {
-                        model.selectVisualSource(source)
-                        if source == .airPlay { model.chooseAirPlaySource() }
-                    } label: {
-                        if model.visualSource == source {
-                            Label(source.title, systemImage: "checkmark")
-                        } else {
-                            Text(source.title)
-                        }
-                    }
-                }
+            Section("Video") {
+                Label(model.visualSource.title, systemImage: model.visualSource == .airPlay ? "airplayvideo" : "cable.connector")
                 if model.visualSource == .airPlay {
                     Button("Choose Mirrored Window…", systemImage: "macwindow.on.rectangle", action: model.chooseAirPlaySource)
                 }
@@ -153,7 +151,9 @@ struct DeviceControlView: View {
             }
         } label: {
             Image(systemName: "ellipsis.circle")
-                .frame(width: 24, height: 24)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 21, height: 21)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -177,8 +177,6 @@ struct DeviceControlView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(model.isChoosingAirPlaySource)
-                Button("Use Direct Video") { model.selectVisualSource(.direct) }
-                    .buttonStyle(.link)
             }
             .padding(34)
             .frame(maxHeight: .infinity)
@@ -208,7 +206,7 @@ struct DeviceControlView: View {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onEnded { value in
                 guard !privacyBlurred,
-                      value.startLocation.y > 46,
+                      value.startLocation.y > toolbarHeight,
                       let screen = model.screenInfo?.screenSize,
                       displaySize.width > 0,
                       displaySize.height > 0 else { return }
