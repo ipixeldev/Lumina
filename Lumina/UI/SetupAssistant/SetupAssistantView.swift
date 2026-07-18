@@ -19,6 +19,10 @@ struct SetupAssistantView: View {
 
                 stateCard
 
+                if model.hasSelectedVisualSource, model.visualSource == .airPlay {
+                    AirPlayPreparationView(model: model)
+                }
+
                 if let report = model.environmentReport {
                     EnvironmentReportView(report: report)
                 }
@@ -91,6 +95,7 @@ struct SetupAssistantView: View {
                     model.selectVisualSource(.direct)
                 }
                 .disabled(!model.canSelectVisualSource)
+                .accessibilityIdentifier("directVideoMethodCard")
                 VideoMethodCard(
                     title: "AirPlay",
                     subtitle: "macOS system receiver",
@@ -101,6 +106,7 @@ struct SetupAssistantView: View {
                     model.selectVisualSource(.airPlay)
                 }
                 .disabled(!model.canSelectVisualSource)
+                .accessibilityIdentifier("airPlayVideoMethodCard")
             }
 
             if !model.hasSelectedVisualSource {
@@ -157,7 +163,7 @@ struct SetupAssistantView: View {
     }
 
     private var canStartEnvironmentCheck: Bool {
-        guard model.hasSelectedVisualSource else { return false }
+        guard model.isSelectedVisualSourceReadyToConnect else { return false }
         return switch model.stateMachine.state {
         case .appStarting, .stopped, .xcodeMissing, .sdkMissing, .certificateMissing, .noDevice, .requiresUserAction:
             true
@@ -208,6 +214,100 @@ struct SetupAssistantView: View {
     private func deviceStatus(_ status: (Device) -> EnvironmentCheckStatus) -> EnvironmentCheckStatus? {
         guard let device = model.deviceSnapshot?.devices.first else { return nil }
         return status(device)
+    }
+}
+
+private struct AirPlayPreparationView: View {
+    @Bindable var model: SetupAssistantModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "airplayvideo")
+                    .font(.system(size: 27, weight: .medium))
+                    .foregroundStyle(.tint)
+                    .frame(width: 46, height: 46)
+                    .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("AirPlay video")
+                        .font(.title2.bold())
+                    Text(model.isAirPlayVideoActive ? "The mirrored iPhone window is producing video frames." : "Mirror the iPhone to this Mac, then let Lumina find its system window.")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Label(
+                    model.isAirPlayVideoActive ? "Video ready" : "Waiting for video",
+                    systemImage: model.isAirPlayVideoActive ? "checkmark.circle.fill" : "hourglass"
+                )
+                .font(.callout.bold())
+                .foregroundStyle(model.isAirPlayVideoActive ? .green : .orange)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Label("On iPhone, open Control Center → Screen Mirroring.", systemImage: "1.circle.fill")
+                Label("Choose \(model.airPlayReceiverName).", systemImage: "2.circle.fill")
+                Label("Return here and find the mirrored iPhone window.", systemImage: "3.circle.fill")
+            }
+            .font(.callout)
+
+            HStack {
+                Button("Open AirPlay Receiver Settings", systemImage: "gear") {
+                    model.openAirPlayReceiverSettings()
+                }
+                Button(model.isCheckingAirPlayReceiver ? "Checking Receiver…" : "Recheck Receiver", systemImage: "arrow.clockwise") {
+                    model.checkAirPlayReceiver()
+                }
+                .disabled(model.isCheckingAirPlayReceiver)
+                if model.isCheckingAirPlayReceiver {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            if let report = model.airPlayReceiverReport {
+                Label(report.diagnostic.title, systemImage: report.isScreenMirroringAdvertised ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.headline)
+                    .foregroundStyle(report.isScreenMirroringAdvertised ? .green : .orange)
+                Text(report.diagnostic.message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else if let error = model.airPlayDiscoveryError {
+                Label(error, systemImage: "xmark.circle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Button(model.isChoosingAirPlaySource ? "Looking for iPhone Window…" : "Find Mirrored iPhone Window", systemImage: "macwindow.on.rectangle") {
+                    model.chooseAirPlaySource()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    model.isChoosingAirPlaySource ||
+                    model.isAirPlayVideoActive ||
+                    model.airPlayReceiverReport?.isScreenMirroringAdvertised != true
+                )
+                .accessibilityIdentifier("chooseAirPlayWindowButton")
+            }
+
+            if let issue = model.airPlayIssue {
+                Label(issue, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+            }
+
+            Text("AirPlay supplies video only. Lumina keeps XCTest as the separate control channel and will hide Setup Assistant only after both channels are ready.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(18)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(.separator.opacity(0.6), lineWidth: 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("airPlayPreparation")
     }
 }
 

@@ -15,12 +15,15 @@ final class SetupAssistantModel {
     private(set) var lastUnexpectedError: String?
     private(set) var runnerIsInstalled: Bool?
     private(set) var isCheckingRunnerCache = false
+    private(set) var airPlayReceiverReport: AirPlayReceiverDiscoverabilityReport?
+    private(set) var airPlayDiscoveryError: String?
 
     private let environmentChecker: any EnvironmentChecking
     private let deviceConnectionMonitor: any DeviceConnectionMonitoring
     private let runnerBuilder: any RunnerBuilding
     private let runnerSetupManager: any RunnerSetupManaging
     private let installationIdentityProvider: any InstallationIdentityProviding
+    private let airPlayReceiverChecker: any AirPlayReceiverDiscoverabilityChecking
     private let webDriverAgentSourceURL: URL?
     private let automationWorkspace: AutomationWorkspaceModel
     private let logger: StructuredLogging
@@ -29,6 +32,8 @@ final class SetupAssistantModel {
     private var runnerBuildTask: Task<Void, Never>?
     private var runnerSetupTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
+    private var airPlayCheckTask: Task<Void, Never>?
+    private var airPlayCheckID: UUID?
     private var lastRunnerSetupConfiguration: RunnerSetupConfiguration?
     private var automaticStartAttemptedDeviceID: String?
 
@@ -39,6 +44,7 @@ final class SetupAssistantModel {
         runnerBuilder: any RunnerBuilding,
         runnerSetupManager: any RunnerSetupManaging,
         installationIdentityProvider: any InstallationIdentityProviding,
+        airPlayReceiverChecker: any AirPlayReceiverDiscoverabilityChecking,
         webDriverAgentSourceURL: URL?,
         automationWorkspace: AutomationWorkspaceModel,
         logger: StructuredLogging
@@ -49,6 +55,7 @@ final class SetupAssistantModel {
         self.runnerBuilder = runnerBuilder
         self.runnerSetupManager = runnerSetupManager
         self.installationIdentityProvider = installationIdentityProvider
+        self.airPlayReceiverChecker = airPlayReceiverChecker
         self.webDriverAgentSourceURL = webDriverAgentSourceURL
         self.automationWorkspace = automationWorkspace
         self.logger = logger
@@ -63,7 +70,7 @@ final class SetupAssistantModel {
     var isChecking: Bool { checkTask != nil }
 
     func checkThisMac() {
-        guard checkTask == nil, hasSelectedVisualSource else { return }
+        guard checkTask == nil, isSelectedVisualSourceReadyToConnect else { return }
         do {
             try stateMachine.transition(to: .checkingEnvironment)
         } catch {
@@ -114,8 +121,21 @@ final class SetupAssistantModel {
     var isBuildingRunner: Bool { runnerBuildTask != nil }
     var isSettingUpRunner: Bool { runnerSetupTask != nil }
     var isReconnecting: Bool { reconnectTask != nil }
+    var isCheckingAirPlayReceiver: Bool { airPlayCheckTask != nil }
     var visualSource: VisualSource { automationWorkspace.visualSource }
     var hasSelectedVisualSource: Bool { automationWorkspace.hasSelectedVisualSource }
+    var isChoosingAirPlaySource: Bool { automationWorkspace.isChoosingAirPlaySource }
+    var isAirPlayVideoActive: Bool {
+        visualSource == .airPlay && automationWorkspace.isStreaming && automationWorkspace.airPlayFrame != nil
+    }
+    var airPlayIssue: String? { automationWorkspace.issue }
+    var airPlayReceiverName: String {
+        airPlayReceiverReport?.macDisplayName ?? Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+    }
+    var isSelectedVisualSourceReadyToConnect: Bool {
+        guard hasSelectedVisualSource else { return false }
+        return visualSource == .direct || airPlayReceiverReport?.isScreenMirroringAdvertised == true
+    }
     var hasReadyDevice: Bool { selectedBuildDevice != nil }
     var canSelectVisualSource: Bool {
         switch stateMachine.state {
@@ -128,7 +148,58 @@ final class SetupAssistantModel {
 
     func selectVisualSource(_ source: VisualSource) {
         automationWorkspace.selectVisualSource(source)
+        if source == .airPlay {
+            checkAirPlayReceiver()
+        } else {
+            airPlayCheckTask?.cancel()
+            airPlayCheckTask = nil
+            airPlayCheckID = nil
+            airPlayDiscoveryError = nil
+        }
         beginAutomaticSetupIfNeeded()
+    }
+
+    func checkAirPlayReceiver() {
+        airPlayCheckTask?.cancel()
+        airPlayReceiverReport = nil
+        airPlayDiscoveryError = nil
+        let checkID = UUID()
+        airPlayCheckID = checkID
+        airPlayCheckTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let report = try await airPlayReceiverChecker.check(timeout: .seconds(2.5))
+                try Task.checkCancellation()
+                guard airPlayCheckID == checkID, visualSource == .airPlay else { return }
+                airPlayReceiverReport = report
+                airPlayCheckTask = nil
+                airPlayCheckID = nil
+                if report.isScreenMirroringAdvertised {
+                    logger.info("macOS AirPlay Receiver is discoverable", category: .mirroring)
+                    beginAutomaticSetupIfNeeded()
+                } else {
+                    logger.error("macOS AirPlay Receiver is not advertising screen mirroring", category: .mirroring)
+                }
+            } catch is CancellationError {
+                guard airPlayCheckID == checkID else { return }
+                airPlayCheckTask = nil
+                airPlayCheckID = nil
+            } catch {
+                guard airPlayCheckID == checkID else { return }
+                airPlayCheckTask = nil
+                airPlayCheckID = nil
+                airPlayDiscoveryError = "Lumina could not check AirPlay discovery: \(error.localizedDescription)"
+                logger.error("AirPlay Receiver discovery check failed", category: .mirroring)
+            }
+        }
+    }
+
+    func chooseAirPlaySource() {
+        automationWorkspace.chooseAirPlaySource()
+    }
+
+    func openAirPlayReceiverSettings() {
+        automationWorkspace.openAirPlayReceiverSettings()
     }
 
     var canBuildRunner: Bool {
@@ -343,7 +414,6 @@ final class SetupAssistantModel {
                     try stateMachine.transition(to: .temporarilyDisconnected)
                 }
                 try stateMachine.transition(to: .reconnecting(attempt: 1))
-                await automationWorkspace.disconnect()
                 let connection: RunnerConnection
                 if let activeConnection = runnerConnection {
                     do {
@@ -498,7 +568,7 @@ final class SetupAssistantModel {
 
     private func beginAutomaticSetupIfNeeded() {
         guard ProcessInfo.processInfo.environment["LUMINA_DISABLE_AUTOSTART"] != "1",
-              hasSelectedVisualSource,
+              isSelectedVisualSourceReadyToConnect,
               let device = selectedBuildDevice,
               automaticStartAttemptedDeviceID != device.id,
               runnerBuildTask == nil,

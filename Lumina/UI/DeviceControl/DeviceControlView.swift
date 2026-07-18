@@ -21,7 +21,7 @@ struct DeviceControlView: View {
                     image: Image(decorative: frame, scale: 1),
                     imageSize: CGSize(width: frame.width, height: frame.height)
                 )
-            } else if model.visualSource == .airPlay {
+            } else if model.visualSource == .airPlay, model.isConnected {
                 airPlaySetup
             } else {
                 unavailable

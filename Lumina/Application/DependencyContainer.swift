@@ -16,6 +16,7 @@ final class DependencyContainer {
         runnerBuilder: any RunnerBuilding,
         runnerSetupManager: any RunnerSetupManaging,
         installationIdentityProvider: any InstallationIdentityProviding,
+        airPlayReceiverChecker: any AirPlayReceiverDiscoverabilityChecking,
         webDriverAgentSourceURL: URL?,
         logger: StructuredLogging
     ) {
@@ -28,6 +29,7 @@ final class DependencyContainer {
             runnerBuilder: runnerBuilder,
             runnerSetupManager: runnerSetupManager,
             installationIdentityProvider: installationIdentityProvider,
+            airPlayReceiverChecker: airPlayReceiverChecker,
             webDriverAgentSourceURL: webDriverAgentSourceURL,
             automationWorkspace: automationWorkspace,
             logger: logger
@@ -66,6 +68,7 @@ final class DependencyContainer {
             runnerBuilder: runnerBuilder,
             runnerSetupManager: runnerSetupManager,
             installationIdentityProvider: KeychainInstallationIdentityProvider(),
+            airPlayReceiverChecker: AirPlayReceiverDiscoverabilityChecker(),
             webDriverAgentSourceURL: sourceURL,
             logger: logger
         )

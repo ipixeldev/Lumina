@@ -19,10 +19,14 @@ final class LuminaUITestsLaunchTests: XCTestCase {
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
+        app.launchEnvironment["LUMINA_DISABLE_AUTOSTART"] = "1"
         app.launch()
 
+        XCTAssertTrue(app.descendants(matching: .any)["videoMethodPicker"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["Connect with AirPlay"].exists)
+
         let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Lumina Welcome"
+        attachment.name = "Lumina Setup Assistant"
         attachment.lifetime = .keepAlways
         add(attachment)
     }

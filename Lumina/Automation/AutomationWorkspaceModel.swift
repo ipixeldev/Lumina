@@ -45,6 +45,14 @@ final class AutomationWorkspaceModel {
     @ObservationIgnored private let frameDecoder = DirectFrameDecoder()
     @ObservationIgnored private let airPlayCapture: AirPlayCaptureService
 
+    var hasLiveVisualChannel: Bool {
+        guard isStreaming else { return false }
+        return switch visualSource {
+        case .direct: directFrame != nil
+        case .airPlay: airPlayFrame != nil
+        }
+    }
+
     init(logger: StructuredLogging) {
         self.logger = logger
         if let storedValue = UserDefaults.standard.string(forKey: Self.visualSourceKey),
@@ -93,7 +101,7 @@ final class AutomationWorkspaceModel {
     }
 
     func connect(to endpoint: URL) async throws {
-        await disconnect()
+        await disconnect(preservingAirPlayCapture: visualSource == .airPlay)
         let connectionToken = UUID()
         self.connectionToken = connectionToken
         let client = WebDriverAgentClient(endpoint: endpoint)
@@ -187,6 +195,8 @@ final class AutomationWorkspaceModel {
     }
 
     func stopStreaming() {
+        let stoppedSource = visualSource
+        let hadLiveVisualChannel = hasLiveVisualChannel
         streamTask?.cancel()
         streamClient?.stop()
         streamClient = nil
@@ -196,6 +206,11 @@ final class AutomationWorkspaceModel {
         airPlaySelectionTask?.cancel()
         airPlaySelectionTask = nil
         airPlayCapture.stop()
+        airPlayFrame = nil
+        framesPerSecond = 0
+        if stoppedSource == .airPlay, hadLiveVisualChannel {
+            onVisualChannelStopped?(stoppedSource)
+        }
     }
 
     func selectStreamProfile(_ profile: StreamQualityProfile) {
@@ -322,14 +337,20 @@ final class AutomationWorkspaceModel {
     }
 
     func disconnect() async {
+        await disconnect(preservingAirPlayCapture: false)
+    }
+
+    private func disconnect(preservingAirPlayCapture: Bool) async {
         streamTask?.cancel()
         streamClient?.stop()
-        airPlayCapture.stop()
+        if !preservingAirPlayCapture { airPlayCapture.stop() }
         streamClient = nil
         streamTask = nil
         streamID = nil
-        airPlaySelectionTask?.cancel()
-        airPlaySelectionTask = nil
+        if !preservingAirPlayCapture {
+            airPlaySelectionTask?.cancel()
+            airPlaySelectionTask = nil
+        }
         let connectedClient = client
         let connectedSession = session
         client = nil
@@ -337,13 +358,15 @@ final class AutomationWorkspaceModel {
         connectionToken = nil
         endpoint = nil
         isConnected = false
-        isStreaming = false
+        if !preservingAirPlayCapture { isStreaming = false }
         if let connectedClient, let connectedSession {
             await connectedClient.deleteSession(connectedSession)
         }
         directFrame = nil
-        airPlayFrame = nil
-        framesPerSecond = 0
+        if !preservingAirPlayCapture {
+            airPlayFrame = nil
+            framesPerSecond = 0
+        }
     }
 
     private func performInput(

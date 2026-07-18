@@ -23,9 +23,12 @@ final class LuminaUITests: XCTestCase {
         let app = testApplication()
         app.launch()
 
-        let setupButton = app.buttons["Set up an iPhone"]
-        XCTAssertTrue(setupButton.waitForExistence(timeout: 3))
-        setupButton.click()
+        XCTAssertTrue(app.descendants(matching: .any)["videoMethodPicker"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["Connect with AirPlay"].exists)
+
+        let directMethod = app.buttons["directVideoMethodCard"]
+        XCTAssertTrue(directMethod.waitForExistence(timeout: 3))
+        directMethod.click()
 
         let checkButton = app.buttons["checkThisMacButton"]
         XCTAssertTrue(checkButton.waitForExistence(timeout: 3))
@@ -43,9 +46,9 @@ final class LuminaUITests: XCTestCase {
         let app = testApplication()
         app.launch()
 
-        let setupButton = app.buttons["Set up an iPhone"]
-        XCTAssertTrue(setupButton.waitForExistence(timeout: 3))
-        setupButton.click()
+        let directMethod = app.buttons["directVideoMethodCard"]
+        XCTAssertTrue(directMethod.waitForExistence(timeout: 3))
+        directMethod.click()
 
         let checkButton = app.buttons["checkThisMacButton"]
         XCTAssertTrue(checkButton.waitForExistence(timeout: 3))

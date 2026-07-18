@@ -5,7 +5,8 @@ struct AppRootView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @Bindable var dependencies: DependencyContainer
-    @State private var selection: AppRoute? = .welcome
+    @State private var selection: AppRoute? = .setupAssistant
+    @State private var windowTransitionTask: Task<Void, Never>?
 
     var body: some View {
         NavigationSplitView {
@@ -32,17 +33,36 @@ struct AppRootView: View {
                 AcknowledgementsView()
             }
         }
-        .onChange(of: dependencies.stateMachine.state) { _, state in
-            let shouldOpenAirPlaySetup = state == .startingMirror &&
-                dependencies.automationWorkspace.visualSource == .airPlay
-            if state == .connected || shouldOpenAirPlaySetup {
-                selection = .deviceControl
-                openWindow(id: "device-control")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    dismissWindow(id: "main")
-                    NSApplication.shared.setActivationPolicy(.accessory)
-                }
-            }
+        .onChange(of: dependencies.stateMachine.state) { _, _ in
+            scheduleDevicePresentation()
+        }
+        .onChange(of: dependencies.automationWorkspace.hasLiveVisualChannel) { _, _ in
+            scheduleDevicePresentation()
+        }
+        .onChange(of: dependencies.automationWorkspace.isConnected) { _, _ in
+            scheduleDevicePresentation()
+        }
+        .onDisappear {
+            windowTransitionTask?.cancel()
+        }
+    }
+
+    private func scheduleDevicePresentation() {
+        windowTransitionTask?.cancel()
+        guard dependencies.stateMachine.state == .connected,
+              dependencies.automationWorkspace.isConnected,
+              dependencies.automationWorkspace.hasLiveVisualChannel else { return }
+
+        selection = .deviceControl
+        openWindow(id: "device-control")
+        windowTransitionTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled,
+                  dependencies.stateMachine.state == .connected,
+                  dependencies.automationWorkspace.isConnected,
+                  dependencies.automationWorkspace.hasLiveVisualChannel else { return }
+            dismissWindow(id: "main")
+            NSApplication.shared.setActivationPolicy(.accessory)
         }
     }
 }

@@ -110,7 +110,7 @@ nonisolated enum DeviceButton: String, Equatable, Sendable {
     case volumeDown = "volumedown"
 }
 
-nonisolated actor WebDriverAgentClient: WebDriverAgentControlling {
+actor WebDriverAgentClient: WebDriverAgentControlling {
     private let endpoint: URL
     private let urlSession: URLSession
 
