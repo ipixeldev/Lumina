@@ -65,6 +65,9 @@ final class SetupAssistantModel {
         automationWorkspace.onVisualChannelStopped = { [weak self] source in
             self?.visualChannelDidStop(source)
         }
+        automationWorkspace.onControlChannelStopped = { [weak self] in
+            self?.controlChannelDidStop()
+        }
     }
 
     var isChecking: Bool { checkTask != nil }
@@ -128,6 +131,9 @@ final class SetupAssistantModel {
     var isAirPlayVideoActive: Bool {
         visualSource == .airPlay && automationWorkspace.isStreaming && automationWorkspace.airPlayFrame != nil
     }
+    var isAirPlayControlReady: Bool {
+        visualSource == .airPlay && automationWorkspace.isControlReady
+    }
     var airPlayIssue: String? { automationWorkspace.issue }
     var airPlayReceiverName: String {
         airPlayReceiverReport?.macDisplayName ?? Host.current().localizedName ?? ProcessInfo.processInfo.hostName
@@ -176,6 +182,9 @@ final class SetupAssistantModel {
                 airPlayCheckID = nil
                 if report.isScreenMirroringAdvertised {
                     logger.info("macOS AirPlay Receiver is discoverable", category: .mirroring)
+                    if stateMachine.state == .appStarting || stateMachine.state == .stopped {
+                        checkThisMac()
+                    }
                     beginAutomaticSetupIfNeeded()
                 } else {
                     logger.error("macOS AirPlay Receiver is not advertising screen mirroring", category: .mirroring)
@@ -196,6 +205,10 @@ final class SetupAssistantModel {
 
     func chooseAirPlaySource() {
         automationWorkspace.chooseAirPlaySource()
+    }
+
+    func waitForAirPlaySource() {
+        automationWorkspace.waitForAirPlaySource()
     }
 
     func openAirPlayReceiverSettings() {
@@ -604,6 +617,18 @@ final class SetupAssistantModel {
         guard source == visualSource, stateMachine.state == .connected else { return }
         transitionIfPossible(to: .startingMirror, category: .mirroring)
         logger.info("AirPlay video stopped; the XCTest control channel remains connected", category: .mirroring)
+    }
+
+    private func controlChannelDidStop() {
+        switch stateMachine.state {
+        case .connected:
+            transitionIfPossible(to: .runnerCrashed, category: .automation)
+        case .startingMirror:
+            transitionIfPossible(to: .temporarilyDisconnected, category: .automation)
+        default:
+            break
+        }
+        logger.error("The XCTest control channel stopped responding", category: .automation)
     }
 
     private func runnerBuildConfiguration() -> RunnerBuildConfiguration? {

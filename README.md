@@ -168,7 +168,7 @@ The Xcode project, target, scheme, product, executable, bundle display name, and
 1. Connect the iPhone over USB, unlock it, and accept **Trust This Computer** if prompted.
 2. Enable **Developer Mode** under **Settings → Privacy & Security** on the iPhone, then complete the required restart and on-device confirmation.
 3. In Xcode, open **Settings → Accounts** and sign in with the Apple ID associated with your development team.
-4. Open Lumina. Setup Assistant appears first on every new app launch. Select either the **Direct** or **AirPlay** card for this run, then select **Check this Mac**.
+4. Open Lumina. Setup Assistant appears first on every new app launch. Select either the **Direct** or **AirPlay** card for this run. Direct waits for **Check this Mac**; AirPlay verifies the receiver and begins the same checks automatically so its separate control channel is ready before mirroring.
 5. Confirm that Lumina reports the iPhone as paired, unlocked, and ready, and that Apple Development signing is ready.
 6. Lumina automatically verifies and reuses a cached signed runner when possible. On the first run—or after signing/source changes—it builds a fresh runner and Xcode may contact Apple to create or refresh the provisioning profile.
 7. Lumina checks whether that exact runner is already installed. It installs only when needed, then starts XCTest and creates the automation session.
@@ -180,7 +180,7 @@ The Xcode project, target, scheme, product, executable, bundle display name, and
 Lumina offers two visual sources while keeping the same local XCUITest control channel:
 
 - **Direct** uses WebDriverAgent's MJPEG server and works over USB or the trusted Xcode Wi-Fi tunnel.
-- **AirPlay** is experimental. The iPhone mirrors to macOS's built-in AirPlay Receiver, and Lumina captures only the mirrored window selected in Lumina's own local chooser. WebDriverAgent remains connected strictly for mouse and toolbar controls; Lumina does not request its screenshot or start its MJPEG server in this mode.
+- **AirPlay** is experimental. The iPhone mirrors to macOS's built-in full-screen AirPlay Receiver. Lumina captures that system window, crops it to the iPhone viewport, returns to the normal desktop Space, and opens its own interactive device-sized window. WebDriverAgent remains connected strictly for mouse and toolbar controls; Lumina does not request its screenshot or start its MJPEG server in this mode.
 
 Direct video includes three presets:
 
@@ -196,11 +196,12 @@ To use AirPlay video:
 
 1. On the Mac, enable **System Settings → General → AirDrop & Handoff → AirPlay Receiver**.
 2. Keep the Mac and iPhone on the same Wi-Fi network.
-3. Select the **AirPlay** card in Lumina. Lumina performs a local Bonjour preflight and displays the exact Mac receiver name that should appear on the iPhone.
-4. On the iPhone, open Control Center, choose **Screen Mirroring**, and select that Mac name.
-5. In Setup Assistant, choose **Find Mirrored iPhone Window**, then explicitly confirm the mirrored iPhone window in Lumina's local chooser. This prevents password prompts or other system windows from being captured by mistake.
-6. Approve Screen Recording permission if macOS requests it. macOS may require Lumina to be restarted after the first approval.
-7. Complete the normal Mac and iPhone checks. Setup Assistant stays visible while either channel is pending and hides only after XCTest control and a real AirPlay frame are both active.
+3. Select the **AirPlay** card in Lumina. Lumina performs a local Bonjour preflight, displays the exact Mac receiver name, and prepares the XCTest control channel first. Keep the iPhone unlocked during this step.
+4. Wait until the AirPlay card reports **Control ready** or **Watching for iPhone**.
+5. On the iPhone, open Control Center, choose **Screen Mirroring**, and select that Mac name. Apple's black full-screen receiver appears briefly because it is the system video source, not the interactive Lumina window.
+6. Lumina watches for the exact full-screen `AirPlayUIAgent` window, captures it, center-crops the phone image, switches back to the desktop, and opens its own floating device-sized window. Use **Choose Window Manually** only if automatic detection times out.
+7. Approve Screen Recording permission if macOS requests it. macOS may require Lumina to be restarted after the first approval.
+8. Setup Assistant hides only after XCTest control and a real AirPlay frame are both active. Clicks, drags, Home, rotation, and volume actions are then sent through WebDriverAgent—not to Apple's view-only AirPlay surface.
 
 AirPlay mode does not turn Lumina itself into an AirPlay receiver. Lumina deliberately uses the macOS system receiver and public ScreenCaptureKit APIs, while the signed local XCTest runner remains a separate control channel.
 

@@ -31,6 +31,7 @@ final class AutomationWorkspaceModel {
     private(set) var isChoosingAirPlaySource = false
     @ObservationIgnored var onVisualChannelStarted: (@MainActor @Sendable (VisualSource) -> Void)?
     @ObservationIgnored var onVisualChannelStopped: (@MainActor @Sendable (VisualSource) -> Void)?
+    @ObservationIgnored var onControlChannelStopped: (@MainActor @Sendable () -> Void)?
 
     private let logger: StructuredLogging
     private var client: (any WebDriverAgentControlling)?
@@ -42,6 +43,9 @@ final class AutomationWorkspaceModel {
     private var endpoint: URL?
     private var frameTimes: [ContinuousClock.Instant] = []
     private var airPlaySelectionTask: Task<Void, Never>?
+    private var consecutiveControlTimeouts = 0
+    private var controlHealthProbeTask: Task<Void, Never>?
+    private var controlHealthProbeID: UUID?
     @ObservationIgnored private let frameDecoder = DirectFrameDecoder()
     @ObservationIgnored private let airPlayCapture: AirPlayCaptureService
 
@@ -51,6 +55,10 @@ final class AutomationWorkspaceModel {
         case .direct: directFrame != nil
         case .airPlay: airPlayFrame != nil
         }
+    }
+
+    var isControlReady: Bool {
+        isConnected && screenInfo != nil && client != nil && session != nil
     }
 
     init(logger: StructuredLogging) {
@@ -131,6 +139,7 @@ final class AutomationWorkspaceModel {
             self.endpoint = endpoint
             apply(state: state)
             directFrame = initialFrame
+            resetControlHealthTracking()
             isConnected = true
             issue = nil
             logger.info("Local iPhone control session connected", category: .automation)
@@ -189,7 +198,11 @@ final class AutomationWorkspaceModel {
             streamID = nil
             directFrame = nil
             isStreaming = airPlayFrame != nil
-            if isStreaming { onVisualChannelStarted?(.airPlay) }
+            if isStreaming {
+                onVisualChannelStarted?(.airPlay)
+            } else {
+                waitForAirPlaySource()
+            }
             logger.info("AirPlay video is waiting for the macOS mirrored window", category: .mirroring)
         }
     }
@@ -247,6 +260,20 @@ final class AutomationWorkspaceModel {
         }
     }
 
+    func waitForAirPlaySource() {
+        guard visualSource == .airPlay, isControlReady else { return }
+        isChoosingAirPlaySource = true
+        issue = nil
+        airPlayCapture.waitForMirroredContent(timeout: .seconds(30))
+        airPlaySelectionTask?.cancel()
+        airPlaySelectionTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(32))
+            guard !Task.isCancelled, let self, self.isChoosingAirPlaySource else { return }
+            self.isChoosingAirPlaySource = false
+            self.issue = "No full-screen AirPlay window appeared. Start Screen Mirroring on the iPhone, choose this Mac, then retry or choose the window manually."
+        }
+    }
+
     func openAirPlayReceiverSettings() {
         let settingsURL = URL(string: "x-apple.systempreferences:com.apple.AirDrop-Handoff-Settings.extension")
         if let settingsURL, NSWorkspace.shared.open(settingsURL) { return }
@@ -298,12 +325,14 @@ final class AutomationWorkspaceModel {
                 let state = try await client.deviceState(session: session)
                 guard self?.connectionToken == connectionToken else { return }
                 self?.apply(state: state)
-                self?.issue = nil
+                self?.clearControlIssueAfterSuccess()
                 self?.logger.debug("iPhone orientation command completed", category: .input)
             } catch {
-                guard self?.connectionToken == connectionToken else { return }
-                self?.issue = error.localizedDescription
-                self?.logger.error("iPhone orientation command failed", category: .input)
+                self?.handleControlFailure(
+                    error,
+                    connectionToken: connectionToken,
+                    logMessage: "iPhone orientation command failed"
+                )
             }
         }
     }
@@ -328,10 +357,13 @@ final class AutomationWorkspaceModel {
                     guard self?.connectionToken == connectionToken else { return }
                     self?.apply(state: state)
                 }
-                self?.issue = nil
+                self?.clearControlIssueAfterSuccess()
             } catch {
-                guard self?.connectionToken == connectionToken else { return }
-                self?.issue = error.localizedDescription
+                self?.handleControlFailure(
+                    error,
+                    connectionToken: connectionToken,
+                    logMessage: "iPhone state refresh failed"
+                )
             }
         }
     }
@@ -358,6 +390,8 @@ final class AutomationWorkspaceModel {
         connectionToken = nil
         endpoint = nil
         isConnected = false
+        resetControlHealthTracking()
+        airPlayCapture.setDeviceViewport(nil)
         if !preservingAirPlayCapture { isStreaming = false }
         if let connectedClient, let connectedSession {
             await connectedClient.deleteSession(connectedSession)
@@ -372,19 +406,135 @@ final class AutomationWorkspaceModel {
     private func performInput(
         _ operation: @escaping @Sendable (any WebDriverAgentControlling, AutomationSession) async throws -> Void
     ) {
-        guard let client, let session, let connectionToken else { return }
+        guard let client, let session, let connectionToken else {
+            issue = "iPhone control is not connected. Reconnect the XCTest control channel and try again."
+            return
+        }
         Task { [weak self] in
             do {
                 try await operation(client, session)
                 guard self?.connectionToken == connectionToken else { return }
-                self?.issue = nil
+                self?.clearControlIssueAfterSuccess()
                 self?.logger.debug("iPhone input command completed", category: .input)
             } catch {
-                guard self?.connectionToken == connectionToken else { return }
-                self?.issue = error.localizedDescription
-                self?.logger.error("iPhone input command failed", category: .input)
+                self?.handleControlFailure(
+                    error,
+                    connectionToken: connectionToken,
+                    logMessage: "iPhone input command failed"
+                )
             }
         }
+    }
+
+    private func clearControlIssueAfterSuccess() {
+        resetControlHealthTracking()
+        // Keep a useful AirPlay capture/permission message visible while the
+        // independent XCTest channel continues to accept commands.
+        if visualSource != .airPlay || isStreaming {
+            issue = nil
+        }
+    }
+
+    private func handleControlFailure(
+        _ error: Error,
+        connectionToken: UUID,
+        logMessage: String
+    ) {
+        guard self.connectionToken == connectionToken else { return }
+        issue = error.localizedDescription
+        logger.error(logMessage, category: .input)
+        if Self.isConfirmedControlLoss(error) {
+            invalidateControlChannel()
+            return
+        }
+
+        if let urlError = error as? URLError, urlError.code == .timedOut {
+            consecutiveControlTimeouts += 1
+            if consecutiveControlTimeouts >= 2 {
+                invalidateControlChannel()
+            } else {
+                scheduleControlHealthProbe(connectionToken: connectionToken)
+            }
+        } else {
+            consecutiveControlTimeouts = 0
+        }
+    }
+
+    private func scheduleControlHealthProbe(connectionToken: UUID) {
+        guard controlHealthProbeTask == nil,
+              let client,
+              let session else { return }
+        let probeID = UUID()
+        controlHealthProbeID = probeID
+        controlHealthProbeTask = Task { [weak self] in
+            do {
+                let state = try await client.deviceState(session: session)
+                guard let self,
+                      self.connectionToken == connectionToken,
+                      self.controlHealthProbeID == probeID else { return }
+                self.controlHealthProbeTask = nil
+                self.controlHealthProbeID = nil
+                self.consecutiveControlTimeouts = 0
+                self.apply(state: state)
+                if self.visualSource != .airPlay || self.isStreaming {
+                    self.issue = nil
+                }
+                self.logger.info("iPhone control health check recovered", category: .automation)
+            } catch is CancellationError {
+                // A successful command, disconnect, or replacement session
+                // cancelled this probe.
+            } catch {
+                guard let self,
+                      self.connectionToken == connectionToken,
+                      self.controlHealthProbeID == probeID else { return }
+                self.controlHealthProbeTask = nil
+                self.controlHealthProbeID = nil
+                self.handleControlFailure(
+                    error,
+                    connectionToken: connectionToken,
+                    logMessage: "iPhone control health check failed"
+                )
+            }
+        }
+    }
+
+    private func resetControlHealthTracking() {
+        controlHealthProbeTask?.cancel()
+        controlHealthProbeTask = nil
+        controlHealthProbeID = nil
+        consecutiveControlTimeouts = 0
+    }
+
+    private func invalidateControlChannel() {
+        resetControlHealthTracking()
+        client = nil
+        session = nil
+        connectionToken = nil
+        endpoint = nil
+        isConnected = false
+        airPlayCapture.setDeviceViewport(nil)
+        onControlChannelStopped?()
+    }
+
+    private static func isConfirmedControlLoss(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            return switch urlError.code {
+            case .cannotConnectToHost,
+                 .cannotFindHost,
+                 .dnsLookupFailed,
+                 .networkConnectionLost,
+                 .notConnectedToInternet:
+                true
+            default:
+                false
+            }
+        }
+
+        guard let issue = error as? WebDriverAgentIssue else { return false }
+        let diagnostic = "\(issue.code) \(issue.message)".lowercased()
+        return diagnostic.contains("invalid session") ||
+            diagnostic.contains("no such session") ||
+            diagnostic.contains("session does not exist")
     }
 
     private func accept(decoded: CGImage, at now: ContinuousClock.Instant) {
@@ -401,6 +551,7 @@ final class AutomationWorkspaceModel {
 
     private func apply(state: AutomationDeviceState) {
         screenInfo = state.screen
+        airPlayCapture.setDeviceViewport(state.screen.screenSize)
         orientation = state.orientation
         activeApplication = state.activeApplication
     }

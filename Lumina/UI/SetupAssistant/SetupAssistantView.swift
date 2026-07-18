@@ -231,12 +231,12 @@ private struct AirPlayPreparationView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("AirPlay video")
                         .font(.title2.bold())
-                    Text(model.isAirPlayVideoActive ? "The mirrored iPhone window is producing video frames." : "Mirror the iPhone to this Mac, then let Lumina find its system window.")
+                    Text(airPlayStatusDetail)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Label(
-                    model.isAirPlayVideoActive ? "Video ready" : "Waiting for video",
+                    airPlayStatusTitle,
                     systemImage: model.isAirPlayVideoActive ? "checkmark.circle.fill" : "hourglass"
                 )
                 .font(.callout.bold())
@@ -244,9 +244,15 @@ private struct AirPlayPreparationView: View {
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                Label("On iPhone, open Control Center → Screen Mirroring.", systemImage: "1.circle.fill")
-                Label("Choose \(model.airPlayReceiverName).", systemImage: "2.circle.fill")
-                Label("Return here and find the mirrored iPhone window.", systemImage: "3.circle.fill")
+                if model.isAirPlayControlReady {
+                    Label("On iPhone, open Control Center → Screen Mirroring.", systemImage: "1.circle.fill")
+                    Label("Choose \(model.airPlayReceiverName).", systemImage: "2.circle.fill")
+                    Label("Lumina will capture the receiver, return to the desktop, and open its device-sized control window automatically.", systemImage: "3.circle.fill")
+                } else {
+                    Label("Let Lumina finish connecting the XCTest control channel first.", systemImage: "1.circle.fill")
+                    Label("Keep the iPhone paired by USB or developer Wi-Fi.", systemImage: "2.circle.fill")
+                    Label("Start iPhone Screen Mirroring only after control is ready.", systemImage: "3.circle.fill")
+                }
             }
             .font(.callout)
 
@@ -278,16 +284,25 @@ private struct AirPlayPreparationView: View {
             }
 
             HStack {
-                Button(model.isChoosingAirPlaySource ? "Looking for iPhone Window…" : "Find Mirrored iPhone Window", systemImage: "macwindow.on.rectangle") {
-                    model.chooseAirPlaySource()
+                Button(model.isChoosingAirPlaySource ? "Watching for iPhone Window…" : "Watch for iPhone AirPlay Window", systemImage: "macwindow.on.rectangle") {
+                    model.waitForAirPlaySource()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(
+                    !model.isAirPlayControlReady ||
                     model.isChoosingAirPlaySource ||
                     model.isAirPlayVideoActive ||
                     model.airPlayReceiverReport?.isScreenMirroringAdvertised != true
                 )
                 .accessibilityIdentifier("chooseAirPlayWindowButton")
+
+                if model.isAirPlayControlReady,
+                   !model.isAirPlayVideoActive,
+                   model.airPlayIssue != nil {
+                    Button("Choose Window Manually…", systemImage: "cursorarrow.click") {
+                        model.chooseAirPlaySource()
+                    }
+                }
             }
 
             if let issue = model.airPlayIssue {
@@ -296,7 +311,7 @@ private struct AirPlayPreparationView: View {
                     .foregroundStyle(.orange)
             }
 
-            Text("AirPlay supplies video only. Lumina keeps XCTest as the separate control channel and will hide Setup Assistant only after both channels are ready.")
+            Text("Apple's AirPlay receiver supplies video only. Lumina returns from its full-screen Space and routes every click and gesture in the device-sized window through the separate XCTest control channel.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -308,6 +323,23 @@ private struct AirPlayPreparationView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("airPlayPreparation")
+    }
+
+    private var airPlayStatusTitle: String {
+        if model.isAirPlayVideoActive { return "Video ready" }
+        if model.isChoosingAirPlaySource { return "Watching for iPhone" }
+        if model.isAirPlayControlReady { return "Control ready" }
+        return "Preparing control"
+    }
+
+    private var airPlayStatusDetail: String {
+        if model.isAirPlayVideoActive {
+            return "The AirPlay video and XCTest control channels are both active."
+        }
+        if model.isAirPlayControlReady {
+            return "XCTest control is ready. Lumina is waiting for the macOS AirPlay receiver window."
+        }
+        return "Lumina connects XCTest control before asking you to start the view-only AirPlay stream."
     }
 }
 

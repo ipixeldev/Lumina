@@ -3,10 +3,8 @@ import SwiftUI
 
 struct AppRootView: View {
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismissWindow) private var dismissWindow
     @Bindable var dependencies: DependencyContainer
     @State private var selection: AppRoute? = .setupAssistant
-    @State private var windowTransitionTask: Task<Void, Never>?
 
     var body: some View {
         NavigationSplitView {
@@ -42,28 +40,15 @@ struct AppRootView: View {
         .onChange(of: dependencies.automationWorkspace.isConnected) { _, _ in
             scheduleDevicePresentation()
         }
-        .onDisappear {
-            windowTransitionTask?.cancel()
-        }
     }
 
     private func scheduleDevicePresentation() {
-        windowTransitionTask?.cancel()
         guard dependencies.stateMachine.state == .connected,
               dependencies.automationWorkspace.isConnected,
               dependencies.automationWorkspace.hasLiveVisualChannel else { return }
 
         selection = .deviceControl
         openWindow(id: "device-control")
-        windowTransitionTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled,
-                  dependencies.stateMachine.state == .connected,
-                  dependencies.automationWorkspace.isConnected,
-                  dependencies.automationWorkspace.hasLiveVisualChannel else { return }
-            dismissWindow(id: "main")
-            NSApplication.shared.setActivationPolicy(.accessory)
-        }
     }
 }
 

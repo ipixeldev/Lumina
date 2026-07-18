@@ -39,6 +39,25 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
     private var acceptsFrames = false
     private var deliveredFirstFrame = false
     private var frameDeliveryToken: UUID?
+    private var deviceViewport: DeviceScreenInfo.Size?
+
+    /// Updates the logical iPhone viewport used to discard the black sides of
+    /// macOS's full-screen AirPlay Receiver before a frame becomes a CGImage.
+    /// Passing nil keeps the complete capture available while XCTest is still
+    /// discovering the device dimensions.
+    func setDeviceViewport(_ viewport: DeviceScreenInfo.Size?) {
+        stateLock.withLock {
+            guard let viewport,
+                  viewport.width.isFinite,
+                  viewport.height.isFinite,
+                  viewport.width > 0,
+                  viewport.height > 0 else {
+                deviceViewport = nil
+                return
+            }
+            deviceViewport = viewport
+        }
+    }
 
     func isCurrentGeneration(_ generation: Int) -> Bool {
         stateLock.withLock { captureGeneration == generation }
@@ -65,6 +84,17 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
         let request = beginSelectionRequest()
         Task { @MainActor [weak self] in
             await self?.performWindowSelection(request: request)
+        }
+    }
+
+    /// Watches for the full-screen window created by macOS AirPlay Receiver.
+    /// This starts before the user mirrors so Lumina does not require a click
+    /// after AirPlayUIAgent has taken over the current Space.
+    @MainActor
+    func waitForMirroredContent(timeout: Duration = .seconds(30)) {
+        let request = beginSelectionRequest()
+        Task { @MainActor [weak self] in
+            await self?.performAutomaticWindowSelection(request: request, timeout: timeout)
         }
     }
 
@@ -120,6 +150,41 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
                 throw CaptureIssue.windowUnavailable
             }
             start(window: snapshot.window)
+        } catch {
+            await finishSelection(request: request, error: error)
+        }
+    }
+
+    @MainActor
+    private func performAutomaticWindowSelection(request: Int, timeout: Duration) async {
+        do {
+            try Self.ensureScreenCapturePermission()
+            let deadline = ContinuousClock.now.advanced(by: timeout)
+            while ContinuousClock.now < deadline {
+                guard isCurrentSelection(request) else { return }
+                do {
+                    let snapshots = try await loadWindowSnapshots()
+                    guard isCurrentSelection(request) else { return }
+                    let automaticCandidates = snapshots.filter { snapshot in
+                        Self.isAutomaticAirPlayWindow(snapshot.candidate)
+                    }
+                    if let snapshot = automaticCandidates.max(by: { lhs, rhs in
+                        lhs.candidate.width * lhs.candidate.height <
+                            rhs.candidate.width * rhs.candidate.height
+                    }) {
+                        start(window: snapshot.window)
+                        return
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    // AirPlayUIAgent can replace its window while entering the
+                    // full-screen Space. Treat enumeration failures during that
+                    // handoff as transient and keep watching until the deadline.
+                }
+                try await Task.sleep(for: .milliseconds(500))
+            }
+            throw CaptureIssue.mirroredWindowTimedOut
         } catch {
             await finishSelection(request: request, error: error)
         }
@@ -268,6 +333,26 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
             searchable.contains("iphone")
     }
 
+    @MainActor
+    private static func isAutomaticAirPlayWindow(_ candidate: WindowCandidate) -> Bool {
+        guard candidate.bundleIdentifier?.lowercased() == "com.apple.airplayuiagent" else {
+            return false
+        }
+
+        let candidateSize = CGSize(
+            width: CGFloat(candidate.width),
+            height: CGFloat(candidate.height)
+        )
+        let candidateArea = candidateSize.width * candidateSize.height
+        return NSScreen.screens.contains { screen in
+            let screenSize = screen.frame.size
+            let screenArea = screenSize.width * screenSize.height
+            return candidateSize.width >= screenSize.width * 0.70 &&
+                candidateSize.height >= screenSize.height * 0.70 &&
+                candidateArea >= screenArea * 0.65
+        }
+    }
+
     private func beginSelectionRequest() -> Int {
         stateLock.withLock {
             selectionGeneration += 1
@@ -351,12 +436,16 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
         let configuration = SCStreamConfiguration()
         let sourceWidth = max(filter.contentRect.width * CGFloat(filter.pointPixelScale), 1)
         let sourceHeight = max(filter.contentRect.height * CGFloat(filter.pointPixelScale), 1)
-        let maximumDimension: CGFloat = 4_096
+        // Apple ignores sourceRect for a desktop-independent single-window
+        // filter, so bound the delivered IOSurface before the CI crop instead.
+        // 2560 px still supplies enough pixels for the largest device window at
+        // Retina scale while materially reducing bandwidth versus a 4K buffer.
+        let maximumDimension: CGFloat = 2_560
         let scale = min(1, maximumDimension / max(sourceWidth, sourceHeight))
         configuration.width = max(2, Int((sourceWidth * scale).rounded(.up)))
         configuration.height = max(2, Int((sourceHeight * scale).rounded(.up)))
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 60)
-        configuration.queueDepth = 5
+        configuration.queueDepth = 3
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.showsCursor = false
         configuration.capturesAudio = false
@@ -414,6 +503,25 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
         }
     }
 
+    private func deviceFrameRect(within contentRect: CGRect) -> CGRect {
+        guard let viewport = stateLock.withLock({ deviceViewport }) else {
+            return contentRect
+        }
+
+        let localCrop = DeviceViewportGeometry.centerCropRect(
+            source: contentRect.size,
+            device: viewport
+        )
+        let crop = localCrop
+            .offsetBy(dx: contentRect.minX, dy: contentRect.minY)
+            .integral
+            .intersection(contentRect)
+        guard !crop.isNull, crop.width > 0, crop.height > 0 else {
+            return contentRect
+        }
+        return crop
+    }
+
     private func invalidateInactiveCapture() -> Int? {
         stateLock.withLock {
             guard stream == nil else { return nil }
@@ -438,8 +546,12 @@ extension AirPlayCaptureService {
               let delivery = beginFrameDelivery(for: stream) else { return }
 
         let image = CIImage(cvPixelBuffer: pixelBuffer)
-        guard let frameRect = Self.contentRect(from: sampleBuffer, boundedBy: image.extent),
-              let frame = imageContext.createCGImage(image, from: frameRect),
+        guard let contentRect = Self.contentRect(from: sampleBuffer, boundedBy: image.extent) else {
+            finishFrameDelivery(token: delivery.token)
+            return
+        }
+        let frameRect = deviceFrameRect(within: contentRect)
+        guard let frame = imageContext.createCGImage(image, from: frameRect),
               let isFirstFrame = registerValidFrame(
                 token: delivery.token,
                 generation: delivery.generation,
@@ -549,6 +661,7 @@ private extension AirPlayCaptureService {
         case screenRecordingPermission
         case noWindows
         case windowUnavailable
+        case mirroredWindowTimedOut
 
         var errorDescription: String? {
             switch self {
@@ -558,6 +671,8 @@ private extension AirPlayCaptureService {
                 "No capturable windows are on screen. Start iPhone Screen Mirroring, then try again."
             case .windowUnavailable:
                 "That mirrored window is no longer available. Start iPhone Screen Mirroring and choose it again."
+            case .mirroredWindowTimedOut:
+                "No full-screen iPhone AirPlay window appeared. Start Screen Mirroring on the iPhone, choose this Mac, then retry or choose the window manually."
             }
         }
     }

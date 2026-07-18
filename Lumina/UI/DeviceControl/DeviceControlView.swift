@@ -9,10 +9,14 @@ struct DeviceControlView: View {
     @State private var privacyBlurred = false
     var body: some View {
         Group {
-            if model.visualSource == .airPlay, let frame = model.airPlayFrame {
+            if model.visualSource == .airPlay,
+               model.isConnected,
+               let screen = model.screenInfo?.screenSize,
+               let frame = model.airPlayFrame {
                 deviceSurface(
                     image: Image(decorative: frame, scale: 1),
-                    imageSize: CGSize(width: frame.width, height: frame.height)
+                    imageSize: CGSize(width: CGFloat(screen.width), height: CGFloat(screen.height)),
+                    cropsToDeviceViewport: true
                 )
             } else if model.visualSource == .direct,
                       model.isConnected,
@@ -34,15 +38,30 @@ struct DeviceControlView: View {
         .onDisappear { model.stopStreaming() }
     }
 
-    private func deviceSurface(image: Image, imageSize: CGSize) -> some View {
+    private func deviceSurface(
+        image: Image,
+        imageSize: CGSize,
+        cropsToDeviceViewport: Bool = false
+    ) -> some View {
         let displaySize = fittedDeviceSize(for: imageSize)
 
         return ZStack {
-            image
-                .resizable()
-                .interpolation(.high)
-                .frame(width: displaySize.width, height: displaySize.height)
-                .blur(radius: privacyBlurred ? 32 : 0)
+            Group {
+                if cropsToDeviceViewport {
+                    image
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFill()
+                        .frame(width: displaySize.width, height: displaySize.height)
+                        .clipped()
+                } else {
+                    image
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: displaySize.width, height: displaySize.height)
+                }
+            }
+            .blur(radius: privacyBlurred ? 32 : 0)
 
             if privacyBlurred {
                 Label("Privacy Blur", systemImage: "eye.slash.fill")
@@ -218,11 +237,12 @@ struct DeviceControlView: View {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onEnded { value in
                 guard !privacyBlurred,
+                      model.isConnected,
                       let screen = model.screenInfo?.screenSize,
                       displaySize.width > 0,
                       displaySize.height > 0 else { return }
-                let start = map(value.startLocation, from: displaySize, to: screen)
-                let end = map(value.location, from: displaySize, to: screen)
+                guard let start = DeviceViewportGeometry.map(value.startLocation, from: displaySize, to: screen),
+                      let end = DeviceViewportGeometry.map(value.location, from: displaySize, to: screen) else { return }
                 let distance = hypot(value.translation.width, value.translation.height)
                 if distance < 8 {
                     model.tap(at: end)
@@ -232,17 +252,14 @@ struct DeviceControlView: View {
             }
     }
 
-    private func map(_ point: CGPoint, from display: CGSize, to screen: DeviceScreenInfo.Size) -> AutomationPoint {
-        let u = min(max(Double(point.x / display.width), 0), 1)
-        let v = min(max(Double(point.y / display.height), 0), 1)
-        return AutomationPoint(x: u * screen.width, y: v * screen.height)
-    }
-
     private func fittedDeviceSize(for imageSize: CGSize) -> CGSize {
         guard imageSize.width > 0, imageSize.height > 0 else { return CGSize(width: 390, height: 700) }
         let visible = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1440, height: 900)
         let maximum = CGSize(width: visible.width * 0.82, height: visible.height - 48)
-        let scale = min(1, maximum.width / imageSize.width, maximum.height / imageSize.height)
-        return CGSize(width: floor(imageSize.width * scale), height: floor(imageSize.height * scale))
+        let device = DeviceScreenInfo.Size(
+            width: Double(imageSize.width),
+            height: Double(imageSize.height)
+        )
+        return DeviceViewportGeometry.fittedDisplaySize(device: device, available: maximum)
     }
 }
