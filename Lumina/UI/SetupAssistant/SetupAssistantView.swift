@@ -94,7 +94,7 @@ struct SetupAssistantView: View {
                 VideoMethodCard(
                     title: "AirPlay",
                     subtitle: "macOS system receiver",
-                    detail: "Mirror to this Mac first, then choose the mirrored window while Lumina provides controls.",
+                    detail: "AirPlay supplies video; the signed XCTest runner supplies controls only.",
                     systemImage: "airplayvideo",
                     isSelected: model.hasSelectedVisualSource && model.visualSource == .airPlay
                 ) {

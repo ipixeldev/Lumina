@@ -95,6 +95,28 @@ struct ApplicationStateMachineTests {
 
         #expect(machine.state == .automationReady)
     }
+
+    @Test("A control connection can recover while AirPlay is waiting for video")
+    func airPlayWaitingRecovery() throws {
+        let machine = ApplicationStateMachine(initialState: .automationReady, logger: TestLogger())
+
+        try machine.transition(to: .startingMirror)
+        try machine.transition(to: .temporarilyDisconnected)
+        try machine.transition(to: .reconnecting(attempt: 1))
+        try machine.transition(to: .connectingAutomation)
+
+        #expect(machine.state == .connectingAutomation)
+    }
+
+    @Test("AirPlay video can restart without dropping XCTest control")
+    func airPlayVideoRestart() throws {
+        let machine = ApplicationStateMachine(initialState: .connected, logger: TestLogger())
+
+        try machine.transition(to: .startingMirror)
+        try machine.transition(to: .connected)
+
+        #expect(machine.state == .connected)
+    }
 }
 
 private struct TestLogger: StructuredLogging {

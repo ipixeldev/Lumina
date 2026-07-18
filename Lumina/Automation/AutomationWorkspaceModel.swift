@@ -8,7 +8,7 @@ nonisolated enum VisualSource: String, CaseIterable, Identifiable, Sendable {
     case airPlay
 
     var id: String { rawValue }
-    var title: String { self == .direct ? "Direct" : "AirPlay-assisted" }
+    var title: String { self == .direct ? "Direct" : "AirPlay" }
 }
 
 @MainActor
@@ -29,10 +29,13 @@ final class AutomationWorkspaceModel {
     private(set) var visualSource: VisualSource
     private(set) var hasSelectedVisualSource: Bool
     private(set) var isChoosingAirPlaySource = false
+    @ObservationIgnored var onVisualChannelStarted: (@MainActor @Sendable (VisualSource) -> Void)?
+    @ObservationIgnored var onVisualChannelStopped: (@MainActor @Sendable (VisualSource) -> Void)?
 
     private let logger: StructuredLogging
     private var client: (any WebDriverAgentControlling)?
     private var session: AutomationSession?
+    private var connectionToken: UUID?
     private var streamTask: Task<Void, Never>?
     private var streamID: UUID?
     private var streamClient: MJPEGStreamClient?
@@ -47,56 +50,85 @@ final class AutomationWorkspaceModel {
         if let storedValue = UserDefaults.standard.string(forKey: Self.visualSourceKey),
            let storedSource = VisualSource(rawValue: storedValue) {
             visualSource = storedSource
-            hasSelectedVisualSource = true
+            hasSelectedVisualSource = false
         } else {
             visualSource = .direct
             hasSelectedVisualSource = false
         }
         airPlayCapture = AirPlayCaptureService()
-        airPlayCapture.onFrame = { [weak self] frame in
+        airPlayCapture.onFrame = { [weak self] frame, generation in
             await MainActor.run {
-                guard self?.visualSource == .airPlay else { return }
-                self?.acceptAirPlay(frame: frame, at: .now)
+                guard let self,
+                      self.visualSource == .airPlay,
+                      self.airPlayCapture.isActiveCapture(generation) else { return }
+                self.acceptAirPlay(frame: frame, at: .now)
             }
         }
-        airPlayCapture.onStarted = { [weak self] in
+        airPlayCapture.onStarted = { [weak self] generation in
             await MainActor.run {
-                guard self?.visualSource == .airPlay else { return }
-                self?.airPlaySelectionTask?.cancel()
-                self?.isChoosingAirPlaySource = false
-                self?.isStreaming = true
-                self?.issue = nil
+                guard let self,
+                      self.visualSource == .airPlay,
+                      self.airPlayCapture.isActiveCapture(generation) else { return }
+                self.airPlaySelectionTask?.cancel()
+                self.isChoosingAirPlaySource = false
+                self.isStreaming = true
+                self.issue = nil
+                self.onVisualChannelStarted?(.airPlay)
             }
         }
-        airPlayCapture.onStopped = { [weak self] message in
+        airPlayCapture.onStopped = { [weak self] generation, message in
             await MainActor.run {
-                guard self?.visualSource == .airPlay else { return }
-                self?.airPlaySelectionTask?.cancel()
-                self?.isChoosingAirPlaySource = false
-                self?.isStreaming = false
-                if let message { self?.issue = "AirPlay capture stopped: \(message)" }
+                guard let self,
+                      self.visualSource == .airPlay,
+                      self.airPlayCapture.isCurrentGeneration(generation) else { return }
+                self.airPlaySelectionTask?.cancel()
+                self.isChoosingAirPlaySource = false
+                self.isStreaming = false
+                self.airPlayFrame = nil
+                self.framesPerSecond = 0
+                if let message { self.issue = "AirPlay capture stopped: \(message)" }
+                self.onVisualChannelStopped?(.airPlay)
             }
         }
     }
 
     func connect(to endpoint: URL) async throws {
         await disconnect()
+        let connectionToken = UUID()
+        self.connectionToken = connectionToken
         let client = WebDriverAgentClient(endpoint: endpoint)
-        let session = try await client.createSession()
+        var createdSession: AutomationSession?
         do {
-            let snapshot = try await client.snapshot(session: session)
+            let session = try await client.createSession()
+            createdSession = session
+            let state: AutomationDeviceState
+            let initialFrame: CGImage?
+            switch visualSource {
+            case .direct:
+                let snapshot = try await client.snapshot(session: session)
+                state = AutomationDeviceState(
+                    screen: snapshot.screen,
+                    orientation: snapshot.orientation,
+                    activeApplication: snapshot.activeApplication
+                )
+                initialFrame = await frameDecoder.decode(snapshot.screenshot)
+            case .airPlay:
+                state = try await client.deviceState(session: session)
+                initialFrame = nil
+            }
+            try Task.checkCancellation()
+            guard self.connectionToken == connectionToken else { throw CancellationError() }
             self.client = client
             self.session = session
             self.endpoint = endpoint
-            screenInfo = snapshot.screen
-            orientation = snapshot.orientation
-            activeApplication = snapshot.activeApplication
-            directFrame = await frameDecoder.decode(snapshot.screenshot)
+            apply(state: state)
+            directFrame = initialFrame
             isConnected = true
             issue = nil
-            logger.info("Local iPhone automation session connected", category: .automation)
+            logger.info("Local iPhone control session connected", category: .automation)
         } catch {
-            await client.deleteSession(session)
+            if let createdSession { await client.deleteSession(createdSession) }
+            if self.connectionToken == connectionToken { self.connectionToken = nil }
             throw error
         }
     }
@@ -135,6 +167,23 @@ final class AutomationWorkspaceModel {
             }
         }
         logger.info("Live screen refresh started", category: .mirroring)
+    }
+
+    func startSelectedVisualSource() {
+        switch visualSource {
+        case .direct:
+            startStreaming()
+        case .airPlay:
+            streamTask?.cancel()
+            streamClient?.stop()
+            streamClient = nil
+            streamTask = nil
+            streamID = nil
+            directFrame = nil
+            isStreaming = airPlayFrame != nil
+            if isStreaming { onVisualChannelStarted?(.airPlay) }
+            logger.info("AirPlay video is waiting for the macOS mirrored window", category: .mirroring)
+        }
     }
 
     func stopStreaming() {
@@ -222,25 +271,51 @@ final class AutomationWorkspaceModel {
     }
 
     func rotate() {
+        guard let client, let session, let connectionToken else { return }
         let target: DeviceOrientation = switch orientation {
         case .landscapeLeft, .landscapeRight: .portrait
         default: .landscapeLeft
         }
-        performInput { client, session in try await client.rotate(to: target, session: session) }
-        orientation = target
+        Task { [weak self] in
+            do {
+                try await client.rotate(to: target, session: session)
+                try await Task.sleep(for: .milliseconds(250))
+                let state = try await client.deviceState(session: session)
+                guard self?.connectionToken == connectionToken else { return }
+                self?.apply(state: state)
+                self?.issue = nil
+                self?.logger.debug("iPhone orientation command completed", category: .input)
+            } catch {
+                guard self?.connectionToken == connectionToken else { return }
+                self?.issue = error.localizedDescription
+                self?.logger.error("iPhone orientation command failed", category: .input)
+            }
+        }
     }
 
     func refresh() {
-        guard let client, let session else { return }
+        guard let client, let session, let connectionToken else { return }
         Task { [weak self] in
             do {
-                let snapshot = try await client.snapshot(session: session)
-                self?.screenInfo = snapshot.screen
-                self?.orientation = snapshot.orientation
-                self?.activeApplication = snapshot.activeApplication
-                self?.directFrame = await self?.frameDecoder.decode(snapshot.screenshot)
+                if self?.visualSource == .direct {
+                    let snapshot = try await client.snapshot(session: session)
+                    guard self?.connectionToken == connectionToken else { return }
+                    self?.apply(state: AutomationDeviceState(
+                        screen: snapshot.screen,
+                        orientation: snapshot.orientation,
+                        activeApplication: snapshot.activeApplication
+                    ))
+                    let frame = await self?.frameDecoder.decode(snapshot.screenshot)
+                    guard self?.connectionToken == connectionToken else { return }
+                    self?.directFrame = frame
+                } else {
+                    let state = try await client.deviceState(session: session)
+                    guard self?.connectionToken == connectionToken else { return }
+                    self?.apply(state: state)
+                }
                 self?.issue = nil
             } catch {
+                guard self?.connectionToken == connectionToken else { return }
                 self?.issue = error.localizedDescription
             }
         }
@@ -255,14 +330,17 @@ final class AutomationWorkspaceModel {
         streamID = nil
         airPlaySelectionTask?.cancel()
         airPlaySelectionTask = nil
-        if let client, let session {
-            await client.deleteSession(session)
-        }
+        let connectedClient = client
+        let connectedSession = session
         client = nil
         session = nil
+        connectionToken = nil
         endpoint = nil
         isConnected = false
         isStreaming = false
+        if let connectedClient, let connectedSession {
+            await connectedClient.deleteSession(connectedSession)
+        }
         directFrame = nil
         airPlayFrame = nil
         framesPerSecond = 0
@@ -271,13 +349,15 @@ final class AutomationWorkspaceModel {
     private func performInput(
         _ operation: @escaping @Sendable (any WebDriverAgentControlling, AutomationSession) async throws -> Void
     ) {
-        guard let client, let session else { return }
+        guard let client, let session, let connectionToken else { return }
         Task { [weak self] in
             do {
                 try await operation(client, session)
+                guard self?.connectionToken == connectionToken else { return }
                 self?.issue = nil
                 self?.logger.debug("iPhone input command completed", category: .input)
             } catch {
+                guard self?.connectionToken == connectionToken else { return }
                 self?.issue = error.localizedDescription
                 self?.logger.error("iPhone input command failed", category: .input)
             }
@@ -294,6 +374,12 @@ final class AutomationWorkspaceModel {
         airPlayFrame = frame
         issue = nil
         recordFrame(at: now)
+    }
+
+    private func apply(state: AutomationDeviceState) {
+        screenInfo = state.screen
+        orientation = state.orientation
+        activeApplication = state.activeApplication
     }
 
     private func recordFrame(at now: ContinuousClock.Instant) {

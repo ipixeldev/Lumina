@@ -7,8 +7,6 @@ struct DeviceControlView: View {
     let isReconnecting: Bool
 
     @State private var privacyBlurred = false
-    @State private var viewRotation = 0
-
     var body: some View {
         Group {
             if model.visualSource == .airPlay, let frame = model.airPlayFrame {
@@ -37,17 +35,14 @@ struct DeviceControlView: View {
     }
 
     private func deviceSurface(image: Image, imageSize: CGSize) -> some View {
-        let baseSize = fittedDeviceSize(for: imageSize)
-        let displaySize = rotatedSize(baseSize)
+        let displaySize = fittedDeviceSize(for: imageSize)
 
         return ZStack {
             image
                 .resizable()
                 .interpolation(.high)
-                .frame(width: baseSize.width, height: baseSize.height)
-                .blur(radius: privacyBlurred ? 32 : 0)
-                .rotationEffect(.degrees(Double(viewRotation) * 90))
                 .frame(width: displaySize.width, height: displaySize.height)
+                .blur(radius: privacyBlurred ? 32 : 0)
 
             if privacyBlurred {
                 Label("Privacy Blur", systemImage: "eye.slash.fill")
@@ -67,22 +62,19 @@ struct DeviceControlView: View {
 
     @ToolbarContentBuilder
     private var deviceToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            toolbarButton("Wake or Unlock", systemImage: "lock.open", action: model.wakeOrUnlock)
-            toolbarButton("Home", systemImage: "house", action: model.goHome)
-            toolbarButton("Rotate View", systemImage: "rotate.right") {
-                withAnimation(.snappy) { viewRotation = (viewRotation + 1) % 4 }
+        ToolbarItem(placement: .principal) {
+            HStack(spacing: 4) {
+                toolbarButton("Wake or Unlock", systemImage: "lock.open", action: model.wakeOrUnlock)
+                toolbarButton("Home", systemImage: "house", action: model.goHome)
+                toolbarButton("Rotate iPhone", systemImage: "rotate.right", action: model.rotate)
+                toolbarButton("Volume Up", systemImage: "speaker.plus", action: model.volumeUp)
+                Text(model.isStreaming ? "\(Int(model.framesPerSecond.rounded())) FPS" : "— FPS")
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 39)
+                controlsMenu
             }
-            toolbarButton("Volume Up", systemImage: "speaker.plus", action: model.volumeUp)
-            if model.issue != nil || !model.isStreaming {
-                toolbarButton("Reconnect", systemImage: "arrow.trianglehead.2.clockwise.rotate.90", action: reconnect)
-                    .disabled(isReconnecting)
-            }
-            Text(model.isStreaming ? "\(Int(model.framesPerSecond.rounded())) FPS" : "— FPS")
-                .font(.caption2.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 39)
-            controlsMenu
+            .fixedSize()
         }
     }
 
@@ -102,14 +94,21 @@ struct DeviceControlView: View {
             if let issue = model.issue {
                 Label(issue, systemImage: "exclamationmark.triangle.fill")
                 Divider()
-                Button("Reconnect", systemImage: "arrow.trianglehead.2.clockwise.rotate.90", action: reconnect)
-                    .disabled(isReconnecting)
+            }
+
+            Section("Connection") {
+                Button(
+                    isReconnecting ? "Reconnecting iPhone Control…" : "Reconnect iPhone Control",
+                    systemImage: "arrow.trianglehead.2.clockwise.rotate.90",
+                    action: reconnect
+                )
+                .disabled(isReconnecting)
             }
 
             Section("Controls") {
                 Button("Volume Down", systemImage: "speaker.minus", action: model.volumeDown)
                 Button("Lock Screen", systemImage: "lock", action: model.lockScreen)
-                Button("Request Device Rotation", systemImage: "iphone.gen3.radiowaves.left.and.right", action: model.rotate)
+                Button("Rotate iPhone", systemImage: "iphone.gen3.radiowaves.left.and.right", action: model.rotate)
             }
 
             Section("Display") {
@@ -162,6 +161,9 @@ struct DeviceControlView: View {
                     .foregroundStyle(.tint)
                 Text("Connect with AirPlay")
                     .font(.title2.bold())
+                Label("XCTest control connected · Direct video is off", systemImage: "checkmark.shield.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.green)
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Enable AirPlay Receiver on this Mac.", systemImage: "1.circle.fill")
                     Label("On iPhone, open Control Center → Screen Mirroring and choose this Mac.", systemImage: "2.circle.fill")
@@ -233,17 +235,7 @@ struct DeviceControlView: View {
     private func map(_ point: CGPoint, from display: CGSize, to screen: DeviceScreenInfo.Size) -> AutomationPoint {
         let u = min(max(Double(point.x / display.width), 0), 1)
         let v = min(max(Double(point.y / display.height), 0), 1)
-        let normalized: (x: Double, y: Double) = switch viewRotation {
-        case 1: (v, 1 - u)
-        case 2: (1 - u, 1 - v)
-        case 3: (1 - v, u)
-        default: (u, v)
-        }
-        return AutomationPoint(x: normalized.x * screen.width, y: normalized.y * screen.height)
-    }
-
-    private func rotatedSize(_ size: CGSize) -> CGSize {
-        viewRotation.isMultiple(of: 2) ? size : CGSize(width: size.height, height: size.width)
+        return AutomationPoint(x: u * screen.width, y: v * screen.height)
     }
 
     private func fittedDeviceSize(for imageSize: CGSize) -> CGSize {

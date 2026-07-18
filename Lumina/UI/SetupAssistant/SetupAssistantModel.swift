@@ -52,6 +52,12 @@ final class SetupAssistantModel {
         self.webDriverAgentSourceURL = webDriverAgentSourceURL
         self.automationWorkspace = automationWorkspace
         self.logger = logger
+        automationWorkspace.onVisualChannelStarted = { [weak self] source in
+            self?.visualChannelDidStart(source)
+        }
+        automationWorkspace.onVisualChannelStopped = { [weak self] source in
+            self?.visualChannelDidStop(source)
+        }
     }
 
     var isChecking: Bool { checkTask != nil }
@@ -122,6 +128,7 @@ final class SetupAssistantModel {
 
     func selectVisualSource(_ source: VisualSource) {
         automationWorkspace.selectVisualSource(source)
+        beginAutomaticSetupIfNeeded()
     }
 
     var canBuildRunner: Bool {
@@ -281,10 +288,14 @@ final class SetupAssistantModel {
                 runnerConnection = connection
                 guard transitionIfPossible(to: .automationReady, category: .automation),
                       transitionIfPossible(to: .startingMirror, category: .mirroring) else { return }
-                automationWorkspace.startStreaming()
-                transitionIfPossible(to: .connected, category: .mirroring)
+                automationWorkspace.startSelectedVisualSource()
+                if visualSource == .direct {
+                    transitionIfPossible(to: .connected, category: .mirroring)
+                    logger.info("iPhone control and Direct video are ready", category: .automation)
+                } else {
+                    logger.info("iPhone control is ready; waiting for the AirPlay window", category: .automation)
+                }
                 runnerSetupTask = nil
-                logger.info("iPhone automation and live screen are ready", category: .automation)
             } catch is CancellationError {
                 runnerSetupTask = nil
                 await automationWorkspace.disconnect()
@@ -328,7 +339,7 @@ final class SetupAssistantModel {
         reconnectTask = Task { [weak self] in
             guard let self else { return }
             do {
-                if stateMachine.state == .connected {
+                if stateMachine.state == .connected || stateMachine.state == .startingMirror {
                     try stateMachine.transition(to: .temporarilyDisconnected)
                 }
                 try stateMachine.transition(to: .reconnecting(attempt: 1))
@@ -353,11 +364,15 @@ final class SetupAssistantModel {
                 try stateMachine.transition(to: .connectingAutomation)
                 try stateMachine.transition(to: .automationReady)
                 try stateMachine.transition(to: .startingMirror)
-                automationWorkspace.startStreaming()
-                try stateMachine.transition(to: .connected)
+                automationWorkspace.startSelectedVisualSource()
+                if visualSource == .direct {
+                    try stateMachine.transition(to: .connected)
+                    logger.info("iPhone control and Direct video were restored", category: .automation)
+                } else {
+                    logger.info("iPhone control was restored; waiting for the AirPlay window", category: .automation)
+                }
                 runnerConnection = connection
                 reconnectTask = nil
-                logger.info("iPhone connection restored without rebuilding or reinstalling", category: .automation)
             } catch is CancellationError {
                 reconnectTask = nil
                 logger.info("iPhone reconnect cancelled", category: .automation)
@@ -439,7 +454,7 @@ final class SetupAssistantModel {
     private func updateApplicationState(for devices: [Device]) {
         refreshRunnerConfigurationForCurrentDevice()
 
-        if stateMachine.state == .connected {
+        if stateMachine.state == .connected || stateMachine.state == .startingMirror {
             if selectedBuildDevice != nil { return }
             transitionIfPossible(to: .temporarilyDisconnected, category: .device)
             return
@@ -507,6 +522,18 @@ final class SetupAssistantModel {
 
     private func installationMarkerKey(for configuration: RunnerSetupConfiguration) -> String {
         "installedRunner.\(configuration.deviceIdentifier).\(configuration.bundleIdentifier)"
+    }
+
+    private func visualChannelDidStart(_ source: VisualSource) {
+        guard source == visualSource, stateMachine.state == .startingMirror else { return }
+        transitionIfPossible(to: .connected, category: .mirroring)
+        logger.info("Selected visual channel is active", category: .mirroring)
+    }
+
+    private func visualChannelDidStop(_ source: VisualSource) {
+        guard source == visualSource, stateMachine.state == .connected else { return }
+        transitionIfPossible(to: .startingMirror, category: .mirroring)
+        logger.info("AirPlay video stopped; the XCTest control channel remains connected", category: .mirroring)
     }
 
     private func runnerBuildConfiguration() -> RunnerBuildConfiguration? {

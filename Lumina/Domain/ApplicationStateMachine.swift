@@ -90,6 +90,8 @@ final class ApplicationStateMachine {
              (.connectingAutomation, .runnerBuilt),
              (.automationReady, .startingMirror),
              (.startingMirror, .connected),
+             (.startingMirror, .temporarilyDisconnected),
+             (.connected, .startingMirror),
              (.connected, .temporarilyDisconnected),
              (.connected, .deviceLocked),
              (.connected, .runnerCrashed),

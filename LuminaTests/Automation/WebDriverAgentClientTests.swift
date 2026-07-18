@@ -38,6 +38,8 @@ struct WebDriverAgentClientTests {
 
         let session = try await client.createSession()
         let snapshot = try await client.snapshot(session: session)
+        let screenshotRequestsBeforeMetadata = requests.count(for: "/session/SESSION-1/screenshot")
+        let deviceState = try await client.deviceState(session: session)
         try await client.tap(at: AutomationPoint(x: 100, y: 200), session: session)
         try await client.drag(
             from: AutomationPoint(x: 100, y: 700),
@@ -46,6 +48,8 @@ struct WebDriverAgentClientTests {
             session: session
         )
         try await client.goHome()
+        try await client.pressButton(.volumeUp, session: session)
+        try await client.rotate(to: .landscapeLeft, session: session)
         try await client.configureVideoStream(session: session, profile: .highQuality)
         await client.deleteSession(session)
 
@@ -54,10 +58,20 @@ struct WebDriverAgentClientTests {
         #expect(snapshot.orientation == .portrait)
         #expect(snapshot.activeApplication.bundleId == "com.apple.springboard")
         #expect(snapshot.screenshot == Data("image".utf8))
+        #expect(deviceState.screen.screenSize.height == 932)
+        #expect(deviceState.orientation == .portrait)
+        #expect(requests.count(for: "/session/SESSION-1/screenshot") == screenshotRequestsBeforeMetadata)
         #expect(requests.paths.contains("/session/SESSION-1/wda/tap"))
         #expect(requests.paths.contains("/session/SESSION-1/wda/dragfromtoforduration"))
         #expect(requests.paths.contains("/wda/homescreen"))
+        #expect(requests.paths.contains("/session/SESSION-1/wda/pressButton"))
+        #expect(requests.paths.contains("/session/SESSION-1/orientation"))
         #expect(requests.paths.contains("/session/SESSION-1/appium/settings"))
+
+        let orientationRequest = requests.request(for: "/session/SESSION-1/orientation", method: "POST")
+        let orientationBody = try #require(orientationRequest?.httpBody)
+        let orientationJSON = try #require(JSONSerialization.jsonObject(with: orientationBody) as? [String: Any])
+        #expect(orientationJSON["orientation"] as? String == "LANDSCAPE")
 
         let settingsRequest = requests.request(for: "/session/SESSION-1/appium/settings")
         let settingsBody = try #require(settingsRequest?.httpBody)
@@ -96,8 +110,16 @@ private final class RequestRecorder: @unchecked Sendable {
         lock.withLock { requests.append(recorded) }
     }
 
-    func request(for path: String) -> URLRequest? {
-        lock.withLock { requests.first { $0.url?.path == path } }
+    func request(for path: String, method: String? = nil) -> URLRequest? {
+        lock.withLock {
+            requests.first {
+                $0.url?.path == path && (method == nil || $0.httpMethod == method)
+            }
+        }
+    }
+
+    func count(for path: String) -> Int {
+        lock.withLock { requests.count { $0.url?.path == path } }
     }
 }
 

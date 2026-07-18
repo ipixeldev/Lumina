@@ -41,6 +41,12 @@ nonisolated struct AutomationSnapshot: Equatable, Sendable {
     let screenshot: Data
 }
 
+nonisolated struct AutomationDeviceState: Equatable, Sendable {
+    let screen: DeviceScreenInfo
+    let orientation: DeviceOrientation
+    let activeApplication: ActiveApplicationInfo
+}
+
 nonisolated enum StreamQualityProfile: String, CaseIterable, Identifiable, Sendable {
     case balanced
     case highQuality
@@ -86,6 +92,7 @@ nonisolated struct WebDriverAgentIssue: Error, Equatable, Sendable, LocalizedErr
 nonisolated protocol WebDriverAgentControlling: Sendable {
     func createSession() async throws -> AutomationSession
     func deleteSession(_ session: AutomationSession) async
+    func deviceState(session: AutomationSession) async throws -> AutomationDeviceState
     func snapshot(session: AutomationSession) async throws -> AutomationSnapshot
     func screenshot(session: AutomationSession) async throws -> Data
     func tap(at point: AutomationPoint, session: AutomationSession) async throws
@@ -138,15 +145,25 @@ nonisolated actor WebDriverAgentClient: WebDriverAgentControlling {
         }
     }
 
-    func snapshot(session: AutomationSession) async throws -> AutomationSnapshot {
+    func deviceState(session: AutomationSession) async throws -> AutomationDeviceState {
         async let screen: ValueEnvelope<DeviceScreenInfo> = request("session/\(session.id)/wda/screen")
         async let orientation: ValueEnvelope<DeviceOrientation> = request("session/\(session.id)/orientation")
         async let application: ValueEnvelope<ActiveApplicationInfo> = request("session/\(session.id)/wda/activeAppInfo")
-        async let image = screenshot(session: session)
-        return try await AutomationSnapshot(
+        return try await AutomationDeviceState(
             screen: screen.value,
             orientation: orientation.value,
-            activeApplication: application.value,
+            activeApplication: application.value
+        )
+    }
+
+    func snapshot(session: AutomationSession) async throws -> AutomationSnapshot {
+        async let state = deviceState(session: session)
+        async let image = screenshot(session: session)
+        let stateValue = try await state
+        return try await AutomationSnapshot(
+            screen: stateValue.screen,
+            orientation: stateValue.orientation,
+            activeApplication: stateValue.activeApplication,
             screenshot: image
         )
     }

@@ -33,7 +33,9 @@ struct AppRootView: View {
             }
         }
         .onChange(of: dependencies.stateMachine.state) { _, state in
-            if state == .connected {
+            let shouldOpenAirPlaySetup = state == .startingMirror &&
+                dependencies.automationWorkspace.visualSource == .airPlay
+            if state == .connected || shouldOpenAirPlaySetup {
                 selection = .deviceControl
                 openWindow(id: "device-control")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {

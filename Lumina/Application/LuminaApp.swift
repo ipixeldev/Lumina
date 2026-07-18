@@ -23,7 +23,7 @@ struct LuminaApp: App {
         }
         .windowResizability(.contentSize)
         .windowStyle(.titleBar)
-        .windowToolbarStyle(.unifiedCompact)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .defaultPosition(.trailing)
         .commandsRemoved()
         .defaultSize(width: 390, height: 844)

@@ -22,24 +22,29 @@ Lumina is intended to become a native macOS utility for a user to view and contr
 
 Lumina keeps video and input independent:
 
-- **Visual channel:** choose the direct WebDriverAgent MJPEG stream or an experimental AirPlay-assisted ScreenCaptureKit source. Direct video has bounded screenshot polling as a compatibility fallback.
+- **Visual channel:** choose the direct WebDriverAgent MJPEG stream or experimental AirPlay video captured from the macOS system receiver with ScreenCaptureKit. Direct video has bounded screenshot polling as a compatibility fallback.
 - **Control channel:** sends taps, drags, swipes, typing, and supported device actions through a signed XCUITest/WebDriverAgent runner.
 
 ```mermaid
 flowchart LR
     Mac["Lumina on macOS"]
-    Transport["Local USB or trusted Wi-Fi transport"]
+    Transport["Local USB or trusted Wi-Fi control transport"]
     Runner["Signed XCUITest / WebDriverAgent runner"]
-    Screen["Direct MJPEG or AirPlay-assisted video"]
+    Direct["Direct MJPEG video"]
+    Receiver["macOS AirPlay Receiver window"]
+    Capture["ScreenCaptureKit video capture"]
     Control["Automation control channel"]
     Phone["User-owned iPhone"]
 
     Mac --> Transport
     Transport --> Runner
-    Runner --> Screen
     Runner --> Control
-    Screen --> Mac
+    Runner --> Direct
+    Direct --> Mac
     Control --> Phone
+    Phone --> Receiver
+    Receiver --> Capture
+    Capture --> Mac
 ```
 
 Video frames, commands, device details, and diagnostics are designed to remain on the user's Mac and iPhone. No cloud relay, account, analytics service, or hosted database is planned for core operation.
@@ -85,14 +90,14 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Automatic build, install when needed, launch, session creation, and device-window opening after the requirements check
 - Dedicated local MJPEG stream with newest-frame buffering, selectable quality profiles, and screenshot fallback
 - Latest-frame backpressure and off-main-thread JPEG decoding so slow rendering drops stale frames instead of freezing the app
-- Experimental AirPlay-assisted visual source using macOS AirPlay Receiver plus Apple's ScreenCaptureKit picker, targeting native-quality capture at up to 60 Hz
+- Experimental AirPlay visual source using macOS AirPlay Receiver plus Apple's ScreenCaptureKit picker, with no WDA screenshot or MJPEG traffic in AirPlay mode
 - Separate iPhone window that follows the video aspect ratio without side gutters
 - Device screen metadata, orientation, and active-application discovery
 - Aspect-fit coordinate mapping for click-to-tap and drag-to-swipe control
-- Overlay controls for Wake or Unlock, Home, local view rotation, and Volume Up
+- Title-bar controls for Wake or Unlock, Home, iPhone rotation, and Volume Up
 - Compact Simulator-style title bar with primary controls and measured FPS
 - Three-dot menu for secondary controls, direct-stream quality, refresh, and Privacy Blur
-- Reliable local view rotation with rotated touch-coordinate mapping, plus a separate best-effort device-orientation request
+- Best-effort iPhone orientation requests through the XCTest control channel, with video following the orientation reported by the device
 - One-click runner reconnection without rebuilding or reinstalling after a dropped session
 - Automatic reconnection when a usable paired Wi-Fi developer tunnel returns
 - Paired Wi-Fi device discovery and launch support through Apple's CoreDevice/Xcode transport
@@ -160,19 +165,19 @@ The Xcode project, target, scheme, product, executable, bundle display name, and
 1. Connect the iPhone over USB, unlock it, and accept **Trust This Computer** if prompted.
 2. Enable **Developer Mode** under **Settings → Privacy & Security** on the iPhone, then complete the required restart and on-device confirmation.
 3. In Xcode, open **Settings → Accounts** and sign in with the Apple ID associated with your development team.
-4. Open Lumina, choose **Set up an iPhone**, select either the **Direct** or **AirPlay** card, then select **Check this Mac**.
+4. Open Lumina, choose **Set up an iPhone**, explicitly select either the **Direct** or **AirPlay** card for this run, then select **Check this Mac**.
 5. Confirm that Lumina reports the iPhone as paired, unlocked, and ready, and that Apple Development signing is ready.
 6. Lumina automatically verifies and reuses a cached signed runner when possible. On the first run—or after signing/source changes—it builds a fresh runner and Xcode may contact Apple to create or refresh the provisioning profile.
 7. Lumina checks whether that exact runner is already installed. It installs only when needed, then starts XCTest and creates the automation session.
 8. The iPhone screen opens automatically in a separate, device-sized window, while the setup window closes and Lumina remains available from the macOS menu bar. Click to tap and drag to swipe.
-9. The compact title bar keeps Wake or Unlock, Home, Rotate View, Volume Up, reconnect status, and measured FPS visible. Use the three-dot menu for secondary actions, Privacy Blur, and direct-stream quality.
+9. The compact title bar keeps Wake or Unlock, Home, Rotate iPhone, Volume Up, and measured FPS visible. Use the three-dot menu for reconnect, secondary actions, Privacy Blur, and direct-stream quality.
 
 ### Video source and quality
 
 Lumina offers two visual sources while keeping the same local XCUITest control channel:
 
 - **Direct** uses WebDriverAgent's MJPEG server and works over USB or the trusted Xcode Wi-Fi tunnel.
-- **AirPlay-assisted** is experimental. The iPhone mirrors to macOS's built-in AirPlay Receiver, and Lumina captures only the mirrored window you select through Apple's ScreenCaptureKit picker.
+- **AirPlay** is experimental. The iPhone mirrors to macOS's built-in AirPlay Receiver, and Lumina captures only the mirrored window you select through Apple's ScreenCaptureKit picker. WebDriverAgent remains connected strictly for mouse and toolbar controls; Lumina does not request its screenshot or start its MJPEG server in this mode.
 
 Direct video includes three presets:
 
@@ -184,7 +189,7 @@ These values are targets, not guaranteed delivery rates. Higher resolution incre
 
 Lumina does not explicitly reinstall an unchanged runner after the first successful setup. Starting WebDriverAgent still requires a new XCTest session on every app run, and Xcode may validate or synchronize its test bundle as part of `test-without-building`; that Apple-managed launch step can resemble an installation even when Lumina skipped its `devicectl install` step.
 
-To use AirPlay-assisted video:
+To use AirPlay video:
 
 1. On the Mac, enable **System Settings → General → AirDrop & Handoff → AirPlay Receiver**.
 2. Keep the Mac and iPhone on the same Wi-Fi network.
@@ -193,7 +198,7 @@ To use AirPlay-assisted video:
 5. In the iPhone window, choose **Choose Mirrored Window**, then select the AirPlay mirrored window in the macOS picker.
 6. Approve Screen Recording permission if macOS requests it. macOS may require Lumina to be restarted after the first approval.
 
-AirPlay-assisted mode does not turn Lumina itself into an AirPlay receiver. Apple does not expose a public API for third-party apps to advertise a custom receiver; Lumina deliberately uses the system receiver and public capture picker instead.
+AirPlay mode does not turn Lumina itself into an AirPlay receiver. Lumina deliberately uses the system receiver and public ScreenCaptureKit picker, while the signed local XCTest runner remains a separate control channel.
 
 For safety, Lumina excludes its own windows from the picker. This prevents recursive self-capture and keeps switching to AirPlay from crashing the app.
 
@@ -295,8 +300,8 @@ The finished product will still be constrained by Apple's developer automation s
 - Free development signing typically needs more frequent renewal.
 - Some secure, banking, authentication, DRM, or system interfaces may resist automation or capture.
 - Direct MJPEG performance depends on device load, the selected quality preset, and transport quality. A 60 FPS target does not guarantee 60 delivered frames.
-- **Rotate View** always rotates Lumina's presentation and input mapping locally. **Request Device Rotation** remains best effort because SpringBoard and portrait-only apps can reject it.
-- AirPlay-assisted video requires the Mac's system AirPlay Receiver, the same Wi-Fi network, Screen Recording permission, and manual source selection in Apple's picker.
+- **Rotate iPhone** sends a real orientation request through XCTest. SpringBoard and portrait-only apps can reject it, so Lumina changes its layout only after the device reports the new orientation.
+- AirPlay video requires the Mac's system AirPlay Receiver, the same Wi-Fi network, Screen Recording permission, and manual source selection in Apple's picker.
 - ScreenCaptureKit can capture only content macOS exposes as shareable. Protected or DRM video may appear blank.
 - **Wake or Unlock** can wake an already trusted device but cannot enter a passcode or bypass Face ID/Touch ID.
 - Lumina cannot bypass passcodes, biometrics, Activation Lock, or physical confirmations.
