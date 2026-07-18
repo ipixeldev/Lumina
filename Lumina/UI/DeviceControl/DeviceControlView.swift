@@ -2,8 +2,6 @@ import AppKit
 import SwiftUI
 
 struct DeviceControlView: View {
-    private let toolbarHeight: CGFloat = 34
-
     @Bindable var model: AutomationWorkspaceModel
     let reconnect: () -> Void
     let isReconnecting: Bool
@@ -20,16 +18,18 @@ struct DeviceControlView: View {
                 )
             } else if model.visualSource == .direct,
                       model.isConnected,
-                      let data = model.screenshotData,
-                      let image = NSImage(data: data) {
-                deviceSurface(image: Image(nsImage: image), imageSize: image.size)
+                      let frame = model.directFrame {
+                deviceSurface(
+                    image: Image(decorative: frame, scale: 1),
+                    imageSize: CGSize(width: frame.width, height: frame.height)
+                )
             } else if model.visualSource == .airPlay {
                 airPlaySetup
             } else {
                 unavailable
             }
         }
-        .ignoresSafeArea(.container, edges: .top)
+        .toolbar { deviceToolbar }
         .onAppear {
             if model.isConnected, model.visualSource == .direct { model.startStreaming() }
         }
@@ -40,7 +40,7 @@ struct DeviceControlView: View {
         let baseSize = fittedDeviceSize(for: imageSize)
         let displaySize = rotatedSize(baseSize)
 
-        return ZStack(alignment: .top) {
+        return ZStack {
             image
                 .resizable()
                 .interpolation(.high)
@@ -57,8 +57,6 @@ struct DeviceControlView: View {
                     .background(.ultraThinMaterial, in: Capsule())
                     .frame(maxHeight: .infinity)
             }
-
-            controls
         }
         .frame(width: displaySize.width, height: displaySize.height)
         .background(.black)
@@ -67,35 +65,31 @@ struct DeviceControlView: View {
         .gesture(deviceGesture(displaySize: displaySize))
     }
 
-    private var controls: some View {
-        HStack(spacing: 2) {
-            Spacer(minLength: 74)
-            controlButton("Wake or Unlock", systemImage: "lock.open", action: model.wakeOrUnlock)
-            controlButton("Home", systemImage: "house", action: model.goHome)
-            controlButton("Rotate View", systemImage: "rotate.right") {
+    @ToolbarContentBuilder
+    private var deviceToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            toolbarButton("Wake or Unlock", systemImage: "lock.open", action: model.wakeOrUnlock)
+            toolbarButton("Home", systemImage: "house", action: model.goHome)
+            toolbarButton("Rotate View", systemImage: "rotate.right") {
                 withAnimation(.snappy) { viewRotation = (viewRotation + 1) % 4 }
             }
-            controlButton("Volume Up", systemImage: "speaker.plus", action: model.volumeUp)
+            toolbarButton("Volume Up", systemImage: "speaker.plus", action: model.volumeUp)
             if model.issue != nil || !model.isStreaming {
-                controlButton("Reconnect", systemImage: "arrow.trianglehead.2.clockwise.rotate.90", action: reconnect)
+                toolbarButton("Reconnect", systemImage: "arrow.trianglehead.2.clockwise.rotate.90", action: reconnect)
                     .disabled(isReconnecting)
             }
             Text(model.isStreaming ? "\(Int(model.framesPerSecond.rounded())) FPS" : "— FPS")
                 .font(.caption2.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.white.opacity(0.92))
+                .foregroundStyle(.secondary)
                 .frame(minWidth: 39)
             controlsMenu
         }
-        .padding(.horizontal, 5)
-        .frame(height: toolbarHeight)
-        .background(Color(red: 0.025, green: 0.34, blue: 0.50))
     }
 
-    private func controlButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+    private func toolbarButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(.white)
                 .frame(width: 21, height: 21)
         }
         .buttonStyle(.plain)
@@ -152,7 +146,6 @@ struct DeviceControlView: View {
         } label: {
             Image(systemName: "ellipsis.circle")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
                 .frame(width: 21, height: 21)
         }
         .menuStyle(.borderlessButton)
@@ -161,29 +154,46 @@ struct DeviceControlView: View {
     }
 
     private var airPlaySetup: some View {
-        ZStack(alignment: .top) {
-            Rectangle().fill(.black)
-            VStack(spacing: 18) {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+            VStack(spacing: 16) {
                 Image(systemName: "airplayvideo")
                     .font(.system(size: 54, weight: .light))
                     .foregroundStyle(.tint)
-                Text("AirPlay-assisted Video")
+                Text("Connect with AirPlay")
                     .font(.title2.bold())
-                Text("Enable AirPlay Receiver on this Mac, then mirror the iPhone to this Mac from Control Center. Finally, select the mirrored window for Lumina to capture.")
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Enable AirPlay Receiver on this Mac.", systemImage: "1.circle.fill")
+                    Label("On iPhone, open Control Center → Screen Mirroring and choose this Mac.", systemImage: "2.circle.fill")
+                    Label("Choose the mirrored iPhone window in Lumina.", systemImage: "3.circle.fill")
+                }
+                .font(.callout)
+                .frame(maxWidth: 310, alignment: .leading)
+                Text("Both devices must use the same network. Lumina uses the macOS AirPlay Receiver; it does not advertise a separate receiver name.")
+                    .font(.caption)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: 310)
+                Button("Open AirPlay Receiver Settings", systemImage: "gear") {
+                    model.openAirPlayReceiverSettings()
+                }
                 Button(model.isChoosingAirPlaySource ? "Waiting for Selection…" : "Choose Mirrored Window…") {
                     model.chooseAirPlaySource()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(model.isChoosingAirPlaySource)
+                if let issue = model.issue {
+                    Text(issue)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 310)
+                }
             }
             .padding(34)
             .frame(maxHeight: .infinity)
-            controls
         }
         .frame(width: 390, height: 760)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var unavailable: some View {
@@ -206,7 +216,6 @@ struct DeviceControlView: View {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onEnded { value in
                 guard !privacyBlurred,
-                      value.startLocation.y > toolbarHeight,
                       let screen = model.screenInfo?.screenSize,
                       displaySize.width > 0,
                       displaySize.height > 0 else { return }

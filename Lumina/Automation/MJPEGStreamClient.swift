@@ -7,16 +7,12 @@ nonisolated final class MJPEGStreamClient: @unchecked Sendable {
     private var parser = MJPEGFrameParser()
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
     private var connection: NWConnection?
-    private var frameHandler: (@Sendable (Data) -> Void)?
     private var responseBuffer = Data()
     private var receivedResponseHeader = false
     private var reportedFirstFrame = false
     private static let logger = Logger(subsystem: "com.iPixeldev.Lumina", category: "MJPEG")
 
-    func frames(
-        from endpoint: URL,
-        onFrame: @escaping @Sendable (Data) -> Void = { _ in }
-    ) -> AsyncThrowingStream<Data, Error> {
+    func frames(from endpoint: URL) -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             guard let host = endpoint.host,
                   let portValue = endpoint.port,
@@ -31,7 +27,6 @@ nonisolated final class MJPEGStreamClient: @unchecked Sendable {
             self.lock.lock()
             self.continuation = continuation
             self.parser.reset()
-            self.frameHandler = onFrame
             self.responseBuffer.removeAll(keepingCapacity: true)
             self.receivedResponseHeader = false
             self.reportedFirstFrame = false
@@ -67,7 +62,6 @@ nonisolated final class MJPEGStreamClient: @unchecked Sendable {
         let connection = self.connection
         self.connection = nil
         continuation = nil
-        frameHandler = nil
         responseBuffer.removeAll(keepingCapacity: false)
         receivedResponseHeader = false
         reportedFirstFrame = false
@@ -105,11 +99,9 @@ nonisolated final class MJPEGStreamClient: @unchecked Sendable {
         let shouldReportFirstFrame = !frames.isEmpty && !reportedFirstFrame
         if shouldReportFirstFrame { reportedFirstFrame = true }
         let continuation = self.continuation
-        let frameHandler = self.frameHandler
         lock.unlock()
         if shouldReportFirstFrame { Self.logger.info("MJPEG stream decoded its first frame") }
         for frame in frames {
-            frameHandler?(frame)
             continuation?.yield(frame)
         }
     }

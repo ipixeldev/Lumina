@@ -45,7 +45,11 @@ nonisolated struct AppleDeviceDiscoveryService: DeviceDiscovering {
             .appendingPathExtension("json")
         defer { removeTemporaryFile(resultURL) }
 
-        async let deviceControl = processRunner.run(
+        // Apple's CoreDevice and xcdevice queries contend for the same device
+        // service when started together and can transiently report DDI services
+        // as unavailable. Capture the richer CoreDevice record first and only
+        // then use xcdevice to classify its current transport.
+        let deviceControlResult = try await processRunner.run(
             CommandRequest(
                 executableURL: URL(fileURLWithPath: "/usr/bin/xcrun"),
                 arguments: [
@@ -55,19 +59,16 @@ nonisolated struct AppleDeviceDiscoveryService: DeviceDiscovering {
                 timeout: .seconds(15)
             )
         )
-        async let xcodeDevices = processRunner.run(
+        guard deviceControlResult.succeeded else {
+            throw DeviceDiscoveryError.appleToolFailed(tool: "devicectl", exitCode: deviceControlResult.exitCode)
+        }
+        let xcodeDeviceResult = try await processRunner.run(
             CommandRequest(
                 executableURL: URL(fileURLWithPath: "/usr/bin/xcrun"),
                 arguments: ["xcdevice", "list", "--timeout", "1"],
                 timeout: .seconds(8)
             )
         )
-
-        let deviceControlResult = try await deviceControl
-        guard deviceControlResult.succeeded else {
-            throw DeviceDiscoveryError.appleToolFailed(tool: "devicectl", exitCode: deviceControlResult.exitCode)
-        }
-        let xcodeDeviceResult = try await xcodeDevices
         guard xcodeDeviceResult.succeeded else {
             throw DeviceDiscoveryError.appleToolFailed(tool: "xcdevice", exitCode: xcodeDeviceResult.exitCode)
         }

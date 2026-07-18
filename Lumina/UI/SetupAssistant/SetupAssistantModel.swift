@@ -188,19 +188,20 @@ final class SetupAssistantModel {
         runnerBuildTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let cached = reuseCache ? try await runnerBuilder.cachedBuild(configuration: configuration) : nil
-                let result: RunnerBuildResult
-                if let cached {
-                    result = cached
-                } else {
-                    result = try await runnerBuilder.build(configuration: configuration)
-                }
+                let builder = runnerBuilder
+                let (result, reusedCache) = try await Task.detached(priority: .userInitiated) {
+                    if reuseCache,
+                       let cached = try await builder.cachedBuild(configuration: configuration) {
+                        return (cached, true)
+                    }
+                    return (try await builder.build(configuration: configuration), false)
+                }.value
                 try Task.checkCancellation()
                 runnerBuildResult = result
                 runnerBuildTask = nil
                 isCheckingRunnerCache = false
                 try stateMachine.transition(to: .runnerBuilt)
-                logger.info(cached == nil ? "WebDriverAgent build and signature verification completed" : "Reusable signed runner verified", category: .build)
+                logger.info(reusedCache ? "Reusable signed runner verified" : "WebDriverAgent build and signature verification completed", category: .build)
                 if continueAutomatically { installAndLaunchRunner() }
             } catch is CancellationError {
                 runnerBuildTask = nil
@@ -332,11 +333,24 @@ final class SetupAssistantModel {
                 }
                 try stateMachine.transition(to: .reconnecting(attempt: 1))
                 await automationWorkspace.disconnect()
-                runnerSetupManager.stop()
-                let connection = try await runnerSetupManager.launchAndConnect(configuration: configuration)
+                let connection: RunnerConnection
+                if let activeConnection = runnerConnection {
+                    do {
+                        try await automationWorkspace.connect(to: activeConnection.endpoint)
+                        connection = activeConnection
+                        logger.info("Existing WebDriverAgent session endpoint is still available", category: .automation)
+                    } catch {
+                        runnerSetupManager.stop()
+                        connection = try await runnerSetupManager.launchAndConnect(configuration: configuration)
+                        try await automationWorkspace.connect(to: connection.endpoint)
+                    }
+                } else {
+                    runnerSetupManager.stop()
+                    connection = try await runnerSetupManager.launchAndConnect(configuration: configuration)
+                    try await automationWorkspace.connect(to: connection.endpoint)
+                }
                 try Task.checkCancellation()
                 try stateMachine.transition(to: .connectingAutomation)
-                try await automationWorkspace.connect(to: connection.endpoint)
                 try stateMachine.transition(to: .automationReady)
                 try stateMachine.transition(to: .startingMirror)
                 automationWorkspace.startStreaming()
@@ -455,7 +469,10 @@ final class SetupAssistantModel {
             nextState = .noDevice
         }
 
-        guard stateMachine.state != nextState else { return }
+        guard stateMachine.state != nextState else {
+            beginAutomaticSetupIfNeeded()
+            return
+        }
         do {
             try stateMachine.transition(to: nextState)
         } catch {

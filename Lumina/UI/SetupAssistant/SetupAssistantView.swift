@@ -93,8 +93,8 @@ struct SetupAssistantView: View {
                 .disabled(!model.canSelectVisualSource)
                 VideoMethodCard(
                     title: "AirPlay",
-                    subtitle: "High-quality video",
-                    detail: "Mirror with macOS AirPlay Receiver while Lumina provides mouse controls.",
+                    subtitle: "macOS system receiver",
+                    detail: "Mirror to this Mac first, then choose the mirrored window while Lumina provides controls.",
                     systemImage: "airplayvideo",
                     isSelected: model.hasSelectedVisualSource && model.visualSource == .airPlay
                 ) {
@@ -322,7 +322,7 @@ private struct RunnerBuildView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.canInstallRunner)
                     .accessibilityIdentifier("installRunnerButton")
-                    Text("Lumina installs the verified local build with Apple's device tooling, starts it through XCTest, and checks its status over the trusted developer connection.")
+                    Text("Lumina reuses the installed app when its identity matches, starts a fresh XCTest session, and checks its status over the trusted developer connection.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -696,8 +696,8 @@ private enum SetupStep: String, CaseIterable, Identifiable {
         case .trust: "Trust"
         case .developerMode: "Developer Mode"
         case .signing: "Apple Development signing"
-        case .buildRunner: "Build runner"
-        case .installRunner: "Install runner"
+        case .buildRunner: "Prepare runner"
+        case .installRunner: "Start runner"
         case .testConnection: "Test connection"
         case .startMirroring: "Start mirroring"
         }
@@ -710,8 +710,8 @@ private enum SetupStep: String, CaseIterable, Identifiable {
         case .trust: "Guide the required on-device Trust This Computer confirmation."
         case .developerMode: "Confirm Developer Mode without bypassing device security."
         case .signing: "Resolve a usable local Apple Development identity and team."
-        case .buildRunner: "Build and sign the selected WebDriverAgent XCTest runner."
-        case .installRunner: "Install and launch the signed runner on the paired iPhone."
+        case .buildRunner: "Reuse a verified cached build, or build and sign it when needed."
+        case .installRunner: "Reuse the installed app when possible and start a fresh XCTest session."
         case .testConnection: "Verify status, session, device information, and a screenshot."
         case .startMirroring: "Begin the independent screenshot visual channel."
         }

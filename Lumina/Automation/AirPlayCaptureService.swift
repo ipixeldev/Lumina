@@ -4,12 +4,14 @@ import AppKit
 @preconcurrency import ScreenCaptureKit
 
 final class AirPlayCaptureService: NSObject, @unchecked Sendable {
-    var onFrame: (@Sendable (CGImage) -> Void)?
-    var onStarted: (@Sendable () -> Void)?
-    var onStopped: (@Sendable (String?) -> Void)?
+    var onFrame: (@Sendable (CGImage) async -> Void)?
+    var onStarted: (@Sendable () async -> Void)?
+    var onStopped: (@Sendable (String?) async -> Void)?
 
     private let sampleQueue = DispatchQueue(label: "com.iPixeldev.Lumina.airplay-capture", qos: .userInteractive)
     private let imageContext = CIContext(options: [.cacheIntermediates: false])
+    private let deliveryLock = NSLock()
+    private var frameDeliveryPending = false
     private var stream: SCStream?
 
     override init() {
@@ -82,9 +84,9 @@ final class AirPlayCaptureService: NSObject, @unchecked Sendable {
                     try await newStream.startCapture()
                     stream = newStream
                 }
-                onStarted?()
+                await onStarted?()
             } catch {
-                onStopped?(error.localizedDescription)
+                await onStopped?(error.localizedDescription)
             }
         }
     }
@@ -100,11 +102,13 @@ extension AirPlayCaptureService: SCContentSharingPickerObserver {
     }
 
     func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
-        if self.stream == nil { onStopped?(nil) }
+        if self.stream == nil {
+            Task { await onStopped?(nil) }
+        }
     }
 
     func contentSharingPickerStartDidFailWithError(_ error: any Error) {
-        onStopped?(error.localizedDescription)
+        Task { await onStopped?(error.localizedDescription) }
     }
 }
 
@@ -113,13 +117,32 @@ extension AirPlayCaptureService: SCStreamOutput, SCStreamDelegate {
         guard type == .screen,
               sampleBuffer.isValid,
               let pixelBuffer = sampleBuffer.imageBuffer else { return }
+        deliveryLock.lock()
+        guard !frameDeliveryPending else {
+            deliveryLock.unlock()
+            return
+        }
+        frameDeliveryPending = true
+        deliveryLock.unlock()
         let image = CIImage(cvPixelBuffer: pixelBuffer)
-        guard let frame = imageContext.createCGImage(image, from: image.extent) else { return }
-        onFrame?(frame)
+        guard let frame = imageContext.createCGImage(image, from: image.extent) else {
+            finishFrameDelivery()
+            return
+        }
+        Task { [weak self] in
+            await self?.onFrame?(frame)
+            self?.finishFrameDelivery()
+        }
     }
 
     func stream(_ stream: SCStream, didStopWithError error: any Error) {
         if self.stream === stream { self.stream = nil }
-        onStopped?(error.localizedDescription)
+        Task { await onStopped?(error.localizedDescription) }
+    }
+
+    private func finishFrameDelivery() {
+        deliveryLock.lock()
+        frameDeliveryPending = false
+        deliveryLock.unlock()
     }
 }

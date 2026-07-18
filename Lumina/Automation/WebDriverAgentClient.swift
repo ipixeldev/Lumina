@@ -59,7 +59,7 @@ nonisolated enum StreamQualityProfile: String, CaseIterable, Identifiable, Senda
     var detail: String {
         switch self {
         case .balanced: "75% resolution · up to 30 FPS"
-        case .highQuality: "Full resolution · up to 20 FPS"
+        case .highQuality: "Full resolution · up to 30 FPS"
         case .smooth: "50% resolution · up to 60 FPS"
         }
     }
@@ -69,7 +69,7 @@ nonisolated enum StreamQualityProfile: String, CaseIterable, Identifiable, Senda
         case .balanced:
             ["mjpegServerFramerate": 30, "mjpegServerScreenshotQuality": 65, "mjpegScalingFactor": 75]
         case .highQuality:
-            ["mjpegServerFramerate": 20, "mjpegServerScreenshotQuality": 85, "mjpegScalingFactor": 100]
+            ["mjpegServerFramerate": 30, "mjpegServerScreenshotQuality": 80, "mjpegScalingFactor": 100]
         case .smooth:
             ["mjpegServerFramerate": 60, "mjpegServerScreenshotQuality": 45, "mjpegScalingFactor": 50]
         }

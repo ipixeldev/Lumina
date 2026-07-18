@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ImageIO
 import Observation
 
 nonisolated enum VisualSource: String, CaseIterable, Identifiable, Sendable {
@@ -17,7 +18,7 @@ final class AutomationWorkspaceModel {
 
     private(set) var isConnected = false
     private(set) var isStreaming = false
-    private(set) var screenshotData: Data?
+    private(set) var directFrame: CGImage?
     private(set) var airPlayFrame: CGImage?
     private(set) var screenInfo: DeviceScreenInfo?
     private(set) var orientation: DeviceOrientation?
@@ -37,6 +38,8 @@ final class AutomationWorkspaceModel {
     private var streamClient: MJPEGStreamClient?
     private var endpoint: URL?
     private var frameTimes: [ContinuousClock.Instant] = []
+    private var airPlaySelectionTask: Task<Void, Never>?
+    @ObservationIgnored private let frameDecoder = DirectFrameDecoder()
     @ObservationIgnored private let airPlayCapture: AirPlayCaptureService
 
     init(logger: StructuredLogging) {
@@ -51,22 +54,24 @@ final class AutomationWorkspaceModel {
         }
         airPlayCapture = AirPlayCaptureService()
         airPlayCapture.onFrame = { [weak self] frame in
-            Task { @MainActor in
+            await MainActor.run {
                 guard self?.visualSource == .airPlay else { return }
                 self?.acceptAirPlay(frame: frame, at: .now)
             }
         }
         airPlayCapture.onStarted = { [weak self] in
-            Task { @MainActor in
+            await MainActor.run {
                 guard self?.visualSource == .airPlay else { return }
+                self?.airPlaySelectionTask?.cancel()
                 self?.isChoosingAirPlaySource = false
                 self?.isStreaming = true
                 self?.issue = nil
             }
         }
         airPlayCapture.onStopped = { [weak self] message in
-            Task { @MainActor in
+            await MainActor.run {
                 guard self?.visualSource == .airPlay else { return }
+                self?.airPlaySelectionTask?.cancel()
                 self?.isChoosingAirPlaySource = false
                 self?.isStreaming = false
                 if let message { self?.issue = "AirPlay capture stopped: \(message)" }
@@ -86,7 +91,7 @@ final class AutomationWorkspaceModel {
             screenInfo = snapshot.screen
             orientation = snapshot.orientation
             activeApplication = snapshot.activeApplication
-            screenshotData = snapshot.screenshot
+            directFrame = await frameDecoder.decode(snapshot.screenshot)
             isConnected = true
             issue = nil
             logger.info("Local iPhone automation session connected", category: .automation)
@@ -111,11 +116,11 @@ final class AutomationWorkspaceModel {
                 let streamClient = MJPEGStreamClient()
                 self?.streamClient = streamClient
                 let streamEndpoint = Self.videoEndpoint(from: endpoint)
-                let frames = streamClient.frames(from: streamEndpoint) { frame in
-                    Task { @MainActor in self?.accept(frame: frame, at: .now) }
-                }
-                for try await _ in frames {
+                let frames = streamClient.frames(from: streamEndpoint)
+                for try await frame in frames {
                     guard !Task.isCancelled else { break }
+                    guard let decoded = await self?.frameDecoder.decode(frame) else { continue }
+                    self?.accept(decoded: decoded, at: .now)
                 }
             } catch is CancellationError {
                 // Normal shutdown.
@@ -139,6 +144,8 @@ final class AutomationWorkspaceModel {
         streamTask = nil
         streamID = nil
         isStreaming = false
+        airPlaySelectionTask?.cancel()
+        airPlaySelectionTask = nil
         airPlayCapture.stop()
     }
 
@@ -167,6 +174,19 @@ final class AutomationWorkspaceModel {
         isChoosingAirPlaySource = true
         issue = nil
         airPlayCapture.chooseMirroredContent()
+        airPlaySelectionTask?.cancel()
+        airPlaySelectionTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            guard !Task.isCancelled, let self, self.isChoosingAirPlaySource else { return }
+            self.isChoosingAirPlaySource = false
+            self.issue = "No mirrored window was selected. Enable AirPlay Receiver on this Mac, mirror the iPhone from Control Center, then try again."
+        }
+    }
+
+    func openAirPlayReceiverSettings() {
+        let settingsURL = URL(string: "x-apple.systempreferences:com.apple.AirDrop-Handoff-Settings.extension")
+        if let settingsURL, NSWorkspace.shared.open(settingsURL) { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
     }
 
     func tap(at point: AutomationPoint) {
@@ -218,7 +238,7 @@ final class AutomationWorkspaceModel {
                 self?.screenInfo = snapshot.screen
                 self?.orientation = snapshot.orientation
                 self?.activeApplication = snapshot.activeApplication
-                self?.screenshotData = snapshot.screenshot
+                self?.directFrame = await self?.frameDecoder.decode(snapshot.screenshot)
                 self?.issue = nil
             } catch {
                 self?.issue = error.localizedDescription
@@ -233,6 +253,8 @@ final class AutomationWorkspaceModel {
         streamClient = nil
         streamTask = nil
         streamID = nil
+        airPlaySelectionTask?.cancel()
+        airPlaySelectionTask = nil
         if let client, let session {
             await client.deleteSession(session)
         }
@@ -241,7 +263,7 @@ final class AutomationWorkspaceModel {
         endpoint = nil
         isConnected = false
         isStreaming = false
-        screenshotData = nil
+        directFrame = nil
         airPlayFrame = nil
         framesPerSecond = 0
     }
@@ -262,8 +284,8 @@ final class AutomationWorkspaceModel {
         }
     }
 
-    private func accept(frame: Data, at now: ContinuousClock.Instant) {
-        screenshotData = frame
+    private func accept(decoded: CGImage, at now: ContinuousClock.Instant) {
+        directFrame = decoded
         issue = nil
         recordFrame(at: now)
     }
@@ -289,7 +311,9 @@ final class AutomationWorkspaceModel {
             let started = ContinuousClock.now
             do {
                 let frame = try await client.screenshot(session: session)
-                accept(frame: frame, at: .now)
+                if let decoded = await frameDecoder.decode(frame) {
+                    accept(decoded: decoded, at: .now)
+                }
                 let elapsed = started.duration(to: .now)
                 let target = Duration.milliseconds(200)
                 if elapsed < target { try await Task.sleep(for: target - elapsed) }
@@ -311,5 +335,15 @@ final class AutomationWorkspaceModel {
         components.query = nil
         components.fragment = nil
         return components.url ?? endpoint
+    }
+}
+
+private actor DirectFrameDecoder {
+    func decode(_ data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, [
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceShouldCache: true
+        ] as CFDictionary)
     }
 }

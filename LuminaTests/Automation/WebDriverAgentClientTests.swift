@@ -63,8 +63,8 @@ struct WebDriverAgentClientTests {
         let settingsBody = try #require(settingsRequest?.httpBody)
         let settingsJSON = try #require(JSONSerialization.jsonObject(with: settingsBody) as? [String: Any])
         let settings = try #require(settingsJSON["settings"] as? [String: Any])
-        #expect(settings["mjpegServerFramerate"] as? Int == 20)
-        #expect(settings["mjpegServerScreenshotQuality"] as? Int == 85)
+        #expect(settings["mjpegServerFramerate"] as? Int == 30)
+        #expect(settings["mjpegServerScreenshotQuality"] as? Int == 80)
         #expect(settings["mjpegScalingFactor"] as? Int == 100)
 
         #expect(requests.request(for: "/session")?.httpMethod == "POST")

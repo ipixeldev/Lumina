@@ -84,7 +84,7 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Persistent installed-runner detection that skips redundant installation on a previously prepared iPhone
 - Automatic build, install when needed, launch, session creation, and device-window opening after the requirements check
 - Dedicated local MJPEG stream with newest-frame buffering, selectable quality profiles, and screenshot fallback
-- Balanced direct-video validation at 24–28 FPS on an iPhone 15 Plus, up from the previous 5 FPS polling path
+- Latest-frame backpressure and off-main-thread JPEG decoding so slow rendering drops stale frames instead of freezing the app
 - Experimental AirPlay-assisted visual source using macOS AirPlay Receiver plus Apple's ScreenCaptureKit picker, targeting native-quality capture at up to 60 Hz
 - Separate iPhone window that follows the video aspect ratio without side gutters
 - Device screen metadata, orientation, and active-application discovery
@@ -177,10 +177,12 @@ Lumina offers two visual sources while keeping the same local XCUITest control c
 Direct video includes three presets:
 
 - **Balanced:** 75% scale, up to 30 FPS. This is the default.
-- **High Quality:** full scale, up to 20 FPS for text and detail.
+- **High Quality:** full scale, up to 30 FPS for text and detail.
 - **Smooth:** 50% scale, up to 60 FPS where the iPhone and transport can sustain it.
 
 These values are targets, not guaranteed delivery rates. Higher resolution increases encoding, transport, and decoding load; the FPS shown in Lumina is the measured frame rate.
+
+Lumina does not explicitly reinstall an unchanged runner after the first successful setup. Starting WebDriverAgent still requires a new XCTest session on every app run, and Xcode may validate or synchronize its test bundle as part of `test-without-building`; that Apple-managed launch step can resemble an installation even when Lumina skipped its `devicectl install` step.
 
 To use AirPlay-assisted video:
 
