@@ -270,8 +270,9 @@ extension AirPlayCaptureService: SCStreamOutput, SCStreamDelegate {
         if let statusValue = frameInfo[.status] as? Int,
            SCFrameStatus(rawValue: statusValue) != .complete { return nil }
         guard let contentRectValue = frameInfo[.contentRect],
-              let contentRectDictionary = contentRectValue as? CFDictionary,
-              let contentRect = CGRect(dictionaryRepresentation: contentRectDictionary),
+              let contentRect = CGRect(
+                dictionaryRepresentation: contentRectValue as! CFDictionary
+              ),
               let scaleFactor = frameInfo[.scaleFactor] as? CGFloat else { return extent }
         let pixelRect = CGRect(
             x: contentRect.origin.x * scaleFactor,
@@ -289,10 +290,10 @@ private final class AsyncSerialTaskQueue: @unchecked Sendable {
     private let lock = NSLock()
     private var tail: Task<Void, Never>?
 
-    func enqueue(_ operation: @escaping @Sendable () async -> Void) {
+    func enqueue(_ operation: @escaping @MainActor @Sendable () async -> Void) {
         lock.withLock {
             let previous = tail
-            tail = Task {
+            tail = Task { @MainActor in
                 if let previous { await previous.value }
                 await operation()
             }
