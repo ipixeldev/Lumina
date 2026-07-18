@@ -46,6 +46,7 @@ struct WebDriverAgentClientTests {
             session: session
         )
         try await client.goHome()
+        try await client.configureVideoStream(session: session, profile: .highQuality)
         await client.deleteSession(session)
 
         #expect(session.id == "SESSION-1")
@@ -56,6 +57,15 @@ struct WebDriverAgentClientTests {
         #expect(requests.paths.contains("/session/SESSION-1/wda/tap"))
         #expect(requests.paths.contains("/session/SESSION-1/wda/dragfromtoforduration"))
         #expect(requests.paths.contains("/wda/homescreen"))
+        #expect(requests.paths.contains("/session/SESSION-1/appium/settings"))
+
+        let settingsRequest = requests.request(for: "/session/SESSION-1/appium/settings")
+        let settingsBody = try #require(settingsRequest?.httpBody)
+        let settingsJSON = try #require(JSONSerialization.jsonObject(with: settingsBody) as? [String: Any])
+        let settings = try #require(settingsJSON["settings"] as? [String: Any])
+        #expect(settings["mjpegServerFramerate"] as? Int == 20)
+        #expect(settings["mjpegServerScreenshotQuality"] as? Int == 85)
+        #expect(settings["mjpegScalingFactor"] as? Int == 100)
 
         #expect(requests.request(for: "/session")?.httpMethod == "POST")
     }

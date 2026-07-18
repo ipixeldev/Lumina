@@ -11,12 +11,17 @@ struct LuminaApp: App {
         }
 
         Window("iPhone", id: "device-control") {
-            DeviceControlView(model: dependencies.automationWorkspace)
+            DeviceControlView(
+                model: dependencies.automationWorkspace,
+                reconnect: dependencies.setupAssistantModel.reconnectRunner,
+                isReconnecting: dependencies.setupAssistantModel.isReconnecting
+            )
         }
         .windowResizability(.contentSize)
+        .windowStyle(.hiddenTitleBar)
         .defaultPosition(.trailing)
         .commandsRemoved()
-        .defaultSize(width: 1040, height: 700)
+        .defaultSize(width: 390, height: 844)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About Lumina") {

@@ -41,6 +41,41 @@ nonisolated struct AutomationSnapshot: Equatable, Sendable {
     let screenshot: Data
 }
 
+nonisolated enum StreamQualityProfile: String, CaseIterable, Identifiable, Sendable {
+    case balanced
+    case highQuality
+    case smooth
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .balanced: "Balanced"
+        case .highQuality: "High Quality"
+        case .smooth: "Smooth"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .balanced: "75% resolution · up to 30 FPS"
+        case .highQuality: "Full resolution · up to 20 FPS"
+        case .smooth: "50% resolution · up to 60 FPS"
+        }
+    }
+
+    fileprivate var settings: [String: Any] {
+        switch self {
+        case .balanced:
+            ["mjpegServerFramerate": 30, "mjpegServerScreenshotQuality": 65, "mjpegScalingFactor": 75]
+        case .highQuality:
+            ["mjpegServerFramerate": 20, "mjpegServerScreenshotQuality": 85, "mjpegScalingFactor": 100]
+        case .smooth:
+            ["mjpegServerFramerate": 60, "mjpegServerScreenshotQuality": 45, "mjpegScalingFactor": 50]
+        }
+    }
+}
+
 nonisolated struct WebDriverAgentIssue: Error, Equatable, Sendable, LocalizedError {
     let code: String
     let message: String
@@ -56,7 +91,7 @@ nonisolated protocol WebDriverAgentControlling: Sendable {
     func tap(at point: AutomationPoint, session: AutomationSession) async throws
     func drag(from start: AutomationPoint, to end: AutomationPoint, duration: Double, session: AutomationSession) async throws
     func goHome() async throws
-    func configureVideoStream(session: AutomationSession) async throws
+    func configureVideoStream(session: AutomationSession, profile: StreamQualityProfile) async throws
     func pressButton(_ button: DeviceButton, session: AutomationSession) async throws
     func lock() async throws
     func unlock() async throws
@@ -148,17 +183,14 @@ nonisolated actor WebDriverAgentClient: WebDriverAgentControlling {
         let _: EmptyEnvelope = try await request("wda/homescreen", method: "POST")
     }
 
-    func configureVideoStream(session: AutomationSession) async throws {
+    func configureVideoStream(session: AutomationSession, profile: StreamQualityProfile) async throws {
+        var settings = profile.settings
+        settings["mjpegFixOrientation"] = true
         let _: EmptyEnvelope = try await request(
             "session/\(session.id)/appium/settings",
             method: "POST",
             body: [
-                "settings": [
-                    "mjpegServerFramerate": 30,
-                    "mjpegServerScreenshotQuality": 40,
-                    "mjpegScalingFactor": 50,
-                    "mjpegFixOrientation": true
-                ]
+                "settings": settings
             ]
         )
     }

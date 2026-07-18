@@ -63,13 +63,14 @@ nonisolated final class LocalStreamingProcess: StreamingProcessLaunching, @unche
             yieldData(handle.availableData)
         }
         process.terminationHandler = { [weak self] process in
-            self?.finish(exitCode: process.terminationStatus)
+            self?.finish(process: process, exitCode: process.terminationStatus)
         }
 
         do {
             try process.run()
         } catch {
             finish(
+                process: process,
                 error: StreamingProcessError.launchFailed(
                     executable: request.executableURL.path,
                     description: error.localizedDescription
@@ -84,21 +85,28 @@ nonisolated final class LocalStreamingProcess: StreamingProcessLaunching, @unche
     }
 
     func terminate() {
-        let activeProcess = lock.withLock { process }
-        guard let activeProcess, activeProcess.isRunning else { return }
+        let active = lock.withLock { () -> (Process?, AsyncThrowingStream<String, Error>.Continuation?) in
+            let active = (process, continuation)
+            process = nil
+            continuation = nil
+            return active
+        }
+        active.1?.finish(throwing: CancellationError())
+        guard let activeProcess = active.0, activeProcess.isRunning else { return }
         activeProcess.terminate()
     }
 
-    private func finish(exitCode: Int32) {
+    private func finish(process: Process, exitCode: Int32) {
         if exitCode == 0 {
-            finish(error: nil)
+            finish(process: process, error: nil)
         } else {
-            finish(error: StreamingProcessError.exited(code: exitCode))
+            finish(process: process, error: StreamingProcessError.exited(code: exitCode))
         }
     }
 
-    private func finish(error: Error?) {
+    private func finish(process finishedProcess: Process, error: Error?) {
         let activeContinuation = lock.withLock { () -> AsyncThrowingStream<String, Error>.Continuation? in
+            guard process === finishedProcess else { return nil }
             let active = continuation
             continuation = nil
             process = nil

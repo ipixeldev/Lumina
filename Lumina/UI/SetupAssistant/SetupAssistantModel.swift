@@ -26,6 +26,8 @@ final class SetupAssistantModel {
     private var deviceMonitorTask: Task<Void, Never>?
     private var runnerBuildTask: Task<Void, Never>?
     private var runnerSetupTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
+    private var lastRunnerSetupConfiguration: RunnerSetupConfiguration?
     private var automaticStartAttemptedDeviceID: String?
 
     init(
@@ -103,6 +105,7 @@ final class SetupAssistantModel {
     var isMonitoringDevices: Bool { deviceMonitorTask != nil }
     var isBuildingRunner: Bool { runnerBuildTask != nil }
     var isSettingUpRunner: Bool { runnerSetupTask != nil }
+    var isReconnecting: Bool { reconnectTask != nil }
 
     var canBuildRunner: Bool {
         guard !isBuildingRunner,
@@ -215,6 +218,7 @@ final class SetupAssistantModel {
             bundleIdentifier: buildResult.bundleIdentifier,
             developerConnectionHosts: device.developerConnectionHosts
         )
+        lastRunnerSetupConfiguration = configuration
         runnerConnection = nil
         runnerSetupIssue = nil
         runnerSetupTask = Task { [weak self] in
@@ -274,9 +278,63 @@ final class SetupAssistantModel {
         runnerSetupManager.stop()
     }
 
+    func reconnectRunner() {
+        guard reconnectTask == nil,
+              let configuration = lastRunnerSetupConfiguration else {
+            runnerSetupIssue = RunnerSetupIssue(
+                code: "LUM-WDA-007",
+                title: "Reconnect is not ready",
+                explanation: "Lumina needs one successful runner setup before it can reconnect without rebuilding.",
+                recovery: "Return to Setup Assistant and start the iPhone connection once.",
+                retryIsSafe: true
+            )
+            return
+        }
+
+        runnerSetupIssue = nil
+        reconnectTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                if stateMachine.state == .connected {
+                    try stateMachine.transition(to: .temporarilyDisconnected)
+                }
+                try stateMachine.transition(to: .reconnecting(attempt: 1))
+                await automationWorkspace.disconnect()
+                runnerSetupManager.stop()
+                let connection = try await runnerSetupManager.launchAndConnect(configuration: configuration)
+                try Task.checkCancellation()
+                try stateMachine.transition(to: .connectingAutomation)
+                try await automationWorkspace.connect(to: connection.endpoint)
+                try stateMachine.transition(to: .automationReady)
+                try stateMachine.transition(to: .startingMirror)
+                automationWorkspace.startStreaming()
+                try stateMachine.transition(to: .connected)
+                runnerConnection = connection
+                reconnectTask = nil
+                logger.info("iPhone connection restored without rebuilding or reinstalling", category: .automation)
+            } catch is CancellationError {
+                reconnectTask = nil
+                logger.info("iPhone reconnect cancelled", category: .automation)
+            } catch let error as RunnerSetupError {
+                reconnectTask = nil
+                runnerSetupIssue = error.issue
+                transitionIfPossible(to: .requiresUserAction(message: error.issue.explanation), category: .automation)
+                logger.error("iPhone reconnect failed with \(error.issue.code)", category: .automation)
+            } catch {
+                reconnectTask = nil
+                let issue = RunnerSetupLogParser.launchIssue(for: error.localizedDescription)
+                runnerSetupIssue = issue
+                transitionIfPossible(to: .requiresUserAction(message: issue.explanation), category: .automation)
+                logger.error("iPhone reconnect failed unexpectedly", category: .automation)
+            }
+        }
+    }
+
     func stopRunner() {
         runnerSetupTask?.cancel()
         runnerSetupTask = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
         guard transitionIfPossible(to: .stopping, category: .build) else { return }
         Task { [weak self] in
             guard let self else { return }
