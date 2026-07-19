@@ -13,6 +13,7 @@ nonisolated struct RunnerBuildConfiguration: Equatable, Sendable {
 nonisolated struct RunnerCodeSignature: Equatable, Sendable {
     let identifier: String
     let teamIdentifier: String
+    let codeDirectoryHash: String
 }
 
 nonisolated struct RunnerBuildResult: Equatable, Sendable {
@@ -22,6 +23,15 @@ nonisolated struct RunnerBuildResult: Equatable, Sendable {
     let bundleIdentifier: String
     let duration: Duration
     let signature: RunnerCodeSignature
+    let controlExtensionIdentity: String
+
+    var artifactIdentity: String {
+        [
+            controlExtensionIdentity,
+            signature.teamIdentifier,
+            signature.codeDirectoryHash
+        ].joined(separator: ":")
+    }
 }
 
 nonisolated struct RunnerBuildIssue: Error, Equatable, Sendable {

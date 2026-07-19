@@ -70,8 +70,8 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
         }
     }
 
-    /// Returns a ranked, local-only snapshot of capturable on-screen windows.
-    /// System AirPlay receiver and iPhone-like windows are placed first.
+    /// Returns a ranked, local-only snapshot of capturable windows across
+    /// Spaces. System AirPlay receiver and iPhone-like windows are placed first.
     @MainActor
     func availableMirroredWindows() async throws -> [WindowCandidate] {
         try Self.ensureScreenCapturePermission()
@@ -119,6 +119,19 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
                 await finishSelection(request: request, error: error)
             }
         }
+    }
+
+    @MainActor
+    static func hasScreenCapturePermission() -> Bool {
+        CGPreflightScreenCaptureAccess()
+    }
+
+    /// Requests Screen Recording only in response to an explicit user action.
+    /// Automatic AirPlay discovery must never reopen the privacy prompt.
+    @MainActor
+    static func requestScreenCapturePermission() -> Bool {
+        if CGPreflightScreenCaptureAccess() { return true }
+        return CGRequestScreenCaptureAccess()
     }
 
     func stop() {
@@ -195,7 +208,10 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
     private func loadWindowSnapshots() async throws -> [WindowSnapshot] {
         let content = try await SCShareableContent.excludingDesktopWindows(
             true,
-            onScreenWindowsOnly: true
+            // Once Lumina returns to its desktop, the macOS receiver remains
+            // on its own inactive full-screen Space. Keep it discoverable for
+            // automatic recovery and the manual fallback chooser.
+            onScreenWindowsOnly: false
         )
         let ownBundleIdentifier = Bundle.main.bundleIdentifier
         return content.windows.compactMap { window -> WindowSnapshot? in
@@ -252,7 +268,7 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = "Choose Mirrored iPhone Window"
-        alert.informativeText = "Start Screen Mirroring on the iPhone first. Lumina lists on-screen windows locally and places likely AirPlay windows first."
+        alert.informativeText = "Start Screen Mirroring on the iPhone first. Lumina lists shareable windows locally and places likely AirPlay windows first."
         alert.icon = NSImage(systemSymbolName: "airplayvideo", accessibilityDescription: "AirPlay")
         alert.addButton(withTitle: "Capture")
         alert.addButton(withTitle: "Cancel")
@@ -284,7 +300,7 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
 
     @MainActor
     private static func ensureScreenCapturePermission() throws {
-        guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
+        guard CGPreflightScreenCaptureAccess() else {
             throw CaptureIssue.screenRecordingPermission
         }
     }
@@ -453,6 +469,7 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
                 try? await newStream.stopCapture()
                 return
             }
+            scheduleFirstFrameWatchdog(for: newStream, generation: generation)
             startingStream = nil
         } catch {
             if let startingStream { try? await startingStream.stopCapture() }
@@ -509,6 +526,40 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
             acceptsFrames = true
             deliveredFirstFrame = false
             return true
+        }
+    }
+
+    private func scheduleFirstFrameWatchdog(for candidate: SCStream, generation: Int) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled, let self,
+                  let notificationGeneration = invalidateCaptureIfAwaitingFirstFrame(
+                    candidate,
+                    generation: generation
+                  ) else { return }
+            try? await candidate.stopCapture()
+            await onStopped?(
+                notificationGeneration,
+                CaptureIssue.firstFrameTimedOut.localizedDescription,
+                true
+            )
+        }
+    }
+
+    private func invalidateCaptureIfAwaitingFirstFrame(
+        _ candidate: SCStream,
+        generation: Int
+    ) -> Int? {
+        stateLock.withLock {
+            guard captureGeneration == generation,
+                  stream === candidate,
+                  acceptsFrames,
+                  !deliveredFirstFrame else { return nil }
+            stream = nil
+            acceptsFrames = false
+            frameDeliveryToken = nil
+            captureGeneration += 1
+            return captureGeneration
         }
     }
 
@@ -705,17 +756,20 @@ private extension AirPlayCaptureService {
         case noWindows
         case windowUnavailable
         case mirroredWindowTimedOut
+        case firstFrameTimedOut
 
         var errorDescription: String? {
             switch self {
             case .screenRecordingPermission:
                 "Allow Lumina in System Settings → Privacy & Security → Screen & System Audio Recording, then reopen Lumina."
             case .noWindows:
-                "No capturable windows are on screen. Start iPhone Screen Mirroring, then try again."
+                "No capturable windows are available. Start iPhone Screen Mirroring, then try again."
             case .windowUnavailable:
                 "That mirrored window is no longer available. Start iPhone Screen Mirroring and choose it again."
             case .mirroredWindowTimedOut:
                 "No full-screen iPhone AirPlay window appeared. Start Screen Mirroring on the iPhone, choose this Mac, then retry or choose the window manually."
+            case .firstFrameTimedOut:
+                "The AirPlay window was found, but Screen Recording did not deliver video. Lumina returned to Setup Assistant so you can retry."
             }
         }
     }

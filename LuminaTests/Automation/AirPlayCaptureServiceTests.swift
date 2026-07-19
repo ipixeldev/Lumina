@@ -47,6 +47,42 @@ struct AirPlayCaptureServiceTests {
         #expect(!AirPlayCaptureService.allowsAutomaticRecovery(after: nil))
     }
 
+    @Test("A granted Screen Recording request hides the request button until relaunch")
+    func grantedPermissionRequiresRelaunch() {
+        let resolution = ScreenCapturePermissionRequestResolution.resolve(
+            requestGranted: true,
+            preflightAfterRequest: false
+        )
+
+        #expect(!resolution.hasPermission)
+        #expect(resolution.needsRelaunch)
+        #expect(!resolution.requestWasDenied)
+    }
+
+    @Test("A denied Screen Recording request directs the user to Settings without a relaunch loop")
+    func deniedPermissionOpensSettings() {
+        let resolution = ScreenCapturePermissionRequestResolution.resolve(
+            requestGranted: false,
+            preflightAfterRequest: false
+        )
+
+        #expect(!resolution.hasPermission)
+        #expect(!resolution.needsRelaunch)
+        #expect(resolution.requestWasDenied)
+    }
+
+    @Test("An already-visible TCC grant wins over a stale request result")
+    func visiblePermissionWins() {
+        let resolution = ScreenCapturePermissionRequestResolution.resolve(
+            requestGranted: false,
+            preflightAfterRequest: true
+        )
+
+        #expect(resolution.hasPermission)
+        #expect(!resolution.needsRelaunch)
+        #expect(!resolution.requestWasDenied)
+    }
+
     private func candidate(
         bundleIdentifier: String,
         layer: Int,

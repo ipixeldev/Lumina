@@ -3,6 +3,23 @@ import Testing
 @testable import Lumina
 
 struct RunnerSetupTests {
+    @Test("Installation trust is scoped to the exact signed runner artifact")
+    func installationTrustIdentity() throws {
+        let fixture = try configuration()
+        defer { cleanup(fixture.root) }
+        let original = fixture.configuration
+        let replacement = RunnerSetupConfiguration(
+            deviceIdentifier: original.deviceIdentifier,
+            productURL: original.productURL,
+            xctestrunURL: original.xctestrunURL,
+            bundleIdentifier: original.bundleIdentifier,
+            artifactIdentity: original.artifactIdentity + ":replacement-signature",
+            developerConnectionHosts: original.developerConnectionHosts
+        )
+
+        #expect(original.installationTrustKey != replacement.installationTrustKey)
+    }
+
     @Test("Installation uses structured devicectl output and literal arguments")
     func installCommand() throws {
         let fixture = try configuration()
@@ -109,6 +126,7 @@ struct RunnerSetupTests {
                 productURL: product,
                 xctestrunURL: xctestrun,
                 bundleIdentifier: "com.iPixeldev.Lumina.user.utest.WebDriverAgentRunner.xctrunner",
+                artifactIdentity: "pinned-source:control-extension:team:code-directory-hash",
                 developerConnectionHosts: developerConnectionHosts
             )
         )

@@ -26,10 +26,10 @@ struct LuminaApp: App {
     @State private var dependencies = DependencyContainer.live
 
     var body: some Scene {
-        WindowGroup("Lumina", id: "main") {
+        Window("Lumina", id: "main") {
             AppRootView(dependencies: dependencies)
                 .frame(minWidth: 840, minHeight: 580)
-                .background(WindowRestorationController())
+                .background(WindowRestorationController(identifier: .luminaMain))
         }
 
         MenuBarExtra("Lumina", systemImage: "iphone.gen3.radiowaves.left.and.right") {
@@ -60,7 +60,14 @@ struct LuminaApp: App {
     }
 }
 
+private extension NSUserInterfaceItemIdentifier {
+    static let luminaMain = Self("com.iPixeldev.Lumina.main-window")
+    static let luminaDevice = Self("com.iPixeldev.Lumina.device-window")
+}
+
 private struct WindowRestorationController: NSViewRepresentable {
+    let identifier: NSUserInterfaceItemIdentifier
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         configureWindow(for: view)
@@ -73,6 +80,7 @@ private struct WindowRestorationController: NSViewRepresentable {
 
     private func configureWindow(for view: NSView) {
         DispatchQueue.main.async {
+            view.window?.identifier = identifier
             view.window?.isRestorable = false
         }
     }
@@ -85,25 +93,30 @@ enum DeviceWindowPresentationPolicy {
     ) -> NSWindow.CollectionBehavior {
         guard visualSource == .airPlay else { return base }
 
+        // The native receiver owns a full-screen Space, but the captured frame
+        // belongs in Lumina's normal desktop window. Never let this window join
+        // the receiver's Space; when ordered front, move it to the desktop Space
+        // Lumina has just activated.
         var behavior = base
         behavior.subtract([
-            .primary,
-            .auxiliary,
-            .moveToActiveSpace,
-            .managed,
-            .stationary,
-            .participatesInCycle,
-            .fullScreenPrimary,
-            .fullScreenNone
-        ])
-        behavior.formUnion([
             .canJoinAllApplications,
             .canJoinAllSpaces,
-            .transient,
-            .ignoresCycle,
-            .fullScreenAuxiliary
+            .fullScreenAuxiliary,
+            .fullScreenPrimary
         ])
+        behavior.insert(.moveToActiveSpace)
         return behavior
+    }
+}
+
+enum AirPlayDesktopHandoffPolicy {
+    static func anchorIsReady(
+        applicationIsActive: Bool,
+        anchorIsVisible: Bool,
+        anchorIsOnActiveSpace: Bool,
+        anchorIsKeyWindow: Bool
+    ) -> Bool {
+        applicationIsActive && anchorIsVisible && anchorIsOnActiveSpace && anchorIsKeyWindow
     }
 }
 
@@ -172,12 +185,13 @@ private struct DeviceWindowController: NSViewRepresentable {
         }
         guard isNewWindow || coordinator.configuredSource != visualSource else { return }
         coordinator.configuredSource = visualSource
+        window.identifier = .luminaDevice
 
         let baseBehavior = coordinator.baseCollectionBehavior ?? window.collectionBehavior
         if visualSource == .airPlay {
-            // Apple's receiver owns a separate full-screen Space. Lumina joins
-            // that Space as a device-sized interactive overlay while continuing
-            // to capture the receiver window through ScreenCaptureKit.
+            // Apple's receiver owns a separate full-screen Space. Lumina keeps
+            // its interactive window on the desktop and captures the receiver
+            // independently through ScreenCaptureKit.
             window.collectionBehavior = DeviceWindowPresentationPolicy.collectionBehavior(
                 for: visualSource,
                 base: baseBehavior
@@ -207,7 +221,9 @@ private struct DeviceControlSceneView: View {
         DeviceControlView(
             model: dependencies.automationWorkspace,
             reconnect: dependencies.setupAssistantModel.reconnectRunner,
-            isReconnecting: dependencies.setupAssistantModel.isReconnecting
+            isReconnecting: dependencies.setupAssistantModel.isReconnecting,
+            selectVisualSource: dependencies.setupAssistantModel.selectVisualSource,
+            canSelectVisualSource: dependencies.setupAssistantModel.canSelectVisualSource
         )
         .background {
             DeviceWindowController(visualSource: dependencies.automationWorkspace.visualSource) { window in
@@ -228,6 +244,15 @@ private struct DeviceControlSceneView: View {
         .onChange(of: dependencies.automationWorkspace.hasPresentedAirPlayVideo) { _, _ in
             updateDeviceWindowPresentation()
         }
+        .onChange(of: dependencies.automationWorkspace.airPlayPresentationFailureSequence) { _, _ in
+            restoreSetupAfterAirPlayCaptureFailure()
+        }
+        .onChange(of: dependencies.automationWorkspace.isChoosingAirPlaySource) { _, isChoosing in
+            if !isChoosing { restoreSetupAfterAirPlayCaptureFailure() }
+        }
+        .onChange(of: dependencies.automationWorkspace.issue) { _, issue in
+            if issue != nil { restoreSetupAfterAirPlayCaptureFailure() }
+        }
         .onChange(of: dependencies.stateMachine.state) { _, _ in
             updateDeviceWindowPresentation()
         }
@@ -242,19 +267,31 @@ private struct DeviceControlSceneView: View {
               shouldPresentDeviceWindow else { return }
 
         presentationTask = Task { @MainActor in
-            for _ in 0..<80 {
-                guard !Task.isCancelled, shouldPresentDeviceWindow else { return }
+            let presentationSource = dependencies.automationWorkspace.visualSource
+            if presentationSource == .airPlay {
+                guard await activateLuminaDesktop(excluding: deviceWindow) else {
+                    guard !Task.isCancelled else { return }
+                    restoreSetupPresentation()
+                    return
+                }
+            }
 
-                if dependencies.automationWorkspace.visualSource == .airPlay {
-                    deviceWindow.orderFrontRegardless()
-                    deviceWindow.makeKey()
+            for _ in 0..<80 {
+                guard !Task.isCancelled,
+                      shouldPresentDeviceWindow,
+                      dependencies.automationWorkspace.visualSource == presentationSource else { return }
+
+                if presentationSource == .airPlay {
+                    deviceWindow.makeKeyAndOrderFront(nil)
                 } else {
                     NSRunningApplication.current.activate(options: [.activateAllWindows])
                     deviceWindow.makeKeyAndOrderFront(nil)
                 }
 
-                if deviceWindow.isVisible, deviceWindow.isOnActiveSpace {
-                    dismissWindow(id: "main")
+                if deviceWindow.isVisible,
+                   deviceWindow.isOnActiveSpace,
+                   deviceWindow.isKeyWindow {
+                    hideSetupWindow()
                     NSApplication.shared.setActivationPolicy(.accessory)
                     deviceWindow.orderFrontRegardless()
                     deviceWindow.makeKey()
@@ -262,7 +299,53 @@ private struct DeviceControlSceneView: View {
                 }
                 try? await Task.sleep(for: .milliseconds(50))
             }
+
+            restoreSetupPresentation()
         }
+    }
+
+    private func activateLuminaDesktop(
+        excluding deviceWindow: NSWindow?,
+        requiresDevicePresentation: Bool = true
+    ) async -> Bool {
+        let application = NSApplication.shared
+        application.setActivationPolicy(.regular)
+
+        // The setup window already lives on Lumina's desktop Space. Bringing it
+        // forward is the supported AppKit way to leave another application's
+        // full-screen Space while ScreenCaptureKit keeps its independent stream.
+        var requestedSetupWindow = false
+        var consecutiveReadyObservations = 0
+        for _ in 0..<80 {
+            guard !Task.isCancelled,
+                  dependencies.automationWorkspace.visualSource == .airPlay else { return false }
+            if requiresDevicePresentation, !shouldPresentDeviceWindow { return false }
+
+            if let setupWindow = application.windows.first(where: {
+                $0 !== deviceWindow && $0.identifier == .luminaMain
+            }) {
+                NSRunningApplication.current.activate(options: [.activateAllWindows])
+                setupWindow.makeKeyAndOrderFront(nil)
+
+                if AirPlayDesktopHandoffPolicy.anchorIsReady(
+                    applicationIsActive: application.isActive,
+                    anchorIsVisible: setupWindow.isVisible,
+                    anchorIsOnActiveSpace: setupWindow.isOnActiveSpace,
+                    anchorIsKeyWindow: setupWindow.isKeyWindow
+                ) {
+                    consecutiveReadyObservations += 1
+                    if consecutiveReadyObservations >= 2 { return true }
+                } else {
+                    consecutiveReadyObservations = 0
+                }
+            } else if !requestedSetupWindow {
+                requestedSetupWindow = true
+                openWindow(id: "main")
+            }
+
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return false
     }
 
     private var shouldPresentDeviceWindow: Bool {
@@ -286,8 +369,11 @@ private struct DeviceControlSceneView: View {
         let workspace = dependencies.automationWorkspace
         if workspace.visualSource == .airPlay, workspace.isControlReady {
             // AppRootView creates this window before the user starts mirroring
-            // so its full-screen collection behavior is configured in advance.
+            // so its collection behavior is configured in advance. Keep Setup
+            // Assistant visible while a runtime Direct → AirPlay switch waits
+            // for its first real frame.
             deviceWindow?.orderOut(nil)
+            restoreSetupPresentation()
             return
         }
 
@@ -297,10 +383,49 @@ private struct DeviceControlSceneView: View {
         }
     }
 
+    private func restoreSetupAfterAirPlayCaptureFailure() {
+        let workspace = dependencies.automationWorkspace
+        guard workspace.visualSource == .airPlay,
+              !workspace.hasLiveVisualChannel else { return }
+        presentationTask?.cancel()
+        deviceWindow?.orderOut(nil)
+        presentationTask = Task { @MainActor in
+            guard await activateLuminaDesktop(
+                excluding: deviceWindow,
+                requiresDevicePresentation: false
+            ) else {
+                guard !Task.isCancelled else { return }
+                restoreSetupPresentation()
+                return
+            }
+        }
+    }
+
+    private func hideSetupWindow() {
+        for window in NSApplication.shared.windows where window.identifier == .luminaMain {
+            // Keep this window alive as a desktop-Space anchor. Closing the
+            // SwiftUI scene would leave AirPlay reconnects with no normal Space
+            // that Lumina can activate.
+            window.orderOut(nil)
+        }
+    }
+
     private func restoreSetupPresentation() {
         NSApplication.shared.setActivationPolicy(.regular)
-        openWindow(id: "main")
         NSRunningApplication.current.activate(options: [.activateAllWindows])
+        if let setupWindow = NSApplication.shared.windows.first(where: {
+            $0.identifier == .luminaMain
+        }) {
+            setupWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        openWindow(id: "main")
+        DispatchQueue.main.async {
+            NSApplication.shared.windows
+                .first(where: { $0.identifier == .luminaMain })?
+                .makeKeyAndOrderFront(nil)
+        }
     }
 }
 

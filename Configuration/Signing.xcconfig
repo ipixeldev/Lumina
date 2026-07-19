@@ -1,0 +1,9 @@
+// Shared local-development signing policy.
+// Personal team identifiers belong in the ignored LocalSigning.xcconfig file.
+
+LUMINA_DEVELOPMENT_TEAM =
+#include? "LocalSigning.xcconfig"
+
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = Apple Development
+DEVELOPMENT_TEAM = $(LUMINA_DEVELOPMENT_TEAM)

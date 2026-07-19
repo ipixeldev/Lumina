@@ -11,6 +11,53 @@ nonisolated enum VisualSource: String, CaseIterable, Identifiable, Sendable {
     var title: String { self == .direct ? "Direct" : "AirPlay" }
 }
 
+nonisolated struct ScreenCapturePermissionRequestResolution: Equatable, Sendable {
+    let hasPermission: Bool
+    let needsRelaunch: Bool
+    let requestWasDenied: Bool
+
+    static func resolve(requestGranted: Bool, preflightAfterRequest: Bool) -> Self {
+        if requestGranted {
+            // ScreenCaptureKit may not observe a newly granted TCC decision in
+            // the current process. Requiring one relaunch avoids a failed first
+            // stream and prevents Lumina from presenting the grant button again.
+            return Self(
+                hasPermission: preflightAfterRequest,
+                needsRelaunch: true,
+                requestWasDenied: false
+            )
+        }
+        if preflightAfterRequest {
+            return Self(hasPermission: true, needsRelaunch: false, requestWasDenied: false)
+        }
+        return Self(hasPermission: false, needsRelaunch: false, requestWasDenied: true)
+    }
+}
+
+nonisolated enum DeviceOrientationResolutionPolicy {
+    static func resolve(
+        reported orientation: DeviceOrientation,
+        screen: DeviceScreenInfo.Size
+    ) -> DeviceOrientation {
+        guard orientation == .unknown else { return orientation }
+        return screen.width > screen.height ? .landscapeLeft : .portrait
+    }
+
+    static func screen(
+        _ screen: DeviceScreenInfo.Size,
+        matches target: DeviceOrientation
+    ) -> Bool {
+        switch target {
+        case .landscapeLeft, .landscapeRight:
+            screen.width > screen.height
+        case .portrait, .portraitUpsideDown:
+            screen.height >= screen.width
+        case .unknown:
+            false
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AutomationWorkspaceModel {
@@ -30,6 +77,10 @@ final class AutomationWorkspaceModel {
     private(set) var hasSelectedVisualSource: Bool
     private(set) var isChoosingAirPlaySource = false
     private(set) var hasPresentedAirPlayVideo = false
+    private(set) var hasScreenCapturePermission: Bool
+    private(set) var screenCapturePermissionNeedsRelaunch = false
+    private(set) var screenCapturePermissionRequestWasDenied = false
+    private(set) var airPlayPresentationFailureSequence = 0
     @ObservationIgnored var onVisualChannelStarted: (@MainActor @Sendable (VisualSource) -> Void)?
     @ObservationIgnored var onVisualChannelStopped: (@MainActor @Sendable (VisualSource) -> Void)?
     @ObservationIgnored var onControlChannelStopped: (@MainActor @Sendable () -> Void)?
@@ -43,8 +94,10 @@ final class AutomationWorkspaceModel {
     private var streamClient: MJPEGStreamClient?
     private var endpoint: URL?
     private var frameTimes: [ContinuousClock.Instant] = []
+    private var hasAnnouncedDirectVisualChannel = false
     private var airPlaySelectionTask: Task<Void, Never>?
     private var airPlayRecoveryTask: Task<Void, Never>?
+    private var currentAirPlayAttemptHasPresentedFrame = false
     private var consecutiveControlTimeouts = 0
     private var controlHealthProbeTask: Task<Void, Never>?
     private var controlHealthProbeID: UUID?
@@ -66,6 +119,7 @@ final class AutomationWorkspaceModel {
 
     init(logger: StructuredLogging) {
         self.logger = logger
+        hasScreenCapturePermission = AirPlayCaptureService.hasScreenCapturePermission()
         if let storedValue = UserDefaults.standard.string(forKey: Self.visualSourceKey),
            let storedSource = VisualSource(rawValue: storedValue) {
             visualSource = storedSource
@@ -108,6 +162,9 @@ final class AutomationWorkspaceModel {
                 self.airPlayFrame = nil
                 self.framesPerSecond = 0
                 if let message { self.issue = "AirPlay capture stopped: \(message)" }
+                if !self.currentAirPlayAttemptHasPresentedFrame {
+                    self.airPlayPresentationFailureSequence &+= 1
+                }
                 self.onVisualChannelStopped?(.airPlay)
                 if allowsAutomaticRecovery { self.scheduleAirPlayRecovery() }
             }
@@ -138,6 +195,7 @@ final class AutomationWorkspaceModel {
                 state = try await client.deviceState(session: session)
                 initialFrame = nil
             }
+            try await client.configureInteraction(session: session, screen: state.screen.screenSize)
             try Task.checkCancellation()
             guard self.connectionToken == connectionToken else { throw CancellationError() }
             self.client = client
@@ -166,6 +224,7 @@ final class AutomationWorkspaceModel {
         guard streamTask == nil, let client, let session, let endpoint else { return }
         let profile = streamProfile
         isStreaming = true
+        hasAnnouncedDirectVisualChannel = false
         issue = nil
         frameTimes.removeAll(keepingCapacity: true)
         let streamID = UUID()
@@ -180,19 +239,15 @@ final class AutomationWorkspaceModel {
                 for try await frame in frames {
                     guard !Task.isCancelled else { break }
                     guard let decoded = await self?.frameDecoder.decode(frame) else { continue }
-                    self?.accept(decoded: decoded, at: .now)
+                    self?.accept(decoded: decoded, at: .now, streamID: streamID)
                 }
             } catch is CancellationError {
                 // Normal shutdown.
             } catch {
                 self?.logger.error("High-frame-rate stream unavailable; using screenshot fallback", category: .mirroring)
-                await self?.runScreenshotFallback(client: client, session: session)
+                await self?.runScreenshotFallback(client: client, session: session, streamID: streamID)
             }
-            if self?.streamID == streamID {
-                self?.isStreaming = false
-                self?.streamTask = nil
-                self?.streamID = nil
-            }
+            self?.directStreamDidFinish(streamID: streamID)
         }
         logger.info("Live screen refresh started", category: .mirroring)
     }
@@ -208,6 +263,7 @@ final class AutomationWorkspaceModel {
             streamTask = nil
             streamID = nil
             directFrame = nil
+            hasAnnouncedDirectVisualChannel = false
             isStreaming = airPlayFrame != nil
             if isStreaming {
                 onVisualChannelStarted?(.airPlay)
@@ -227,21 +283,24 @@ final class AutomationWorkspaceModel {
         streamTask = nil
         streamID = nil
         isStreaming = false
+        hasAnnouncedDirectVisualChannel = false
         airPlaySelectionTask?.cancel()
         airPlaySelectionTask = nil
         airPlayRecoveryTask?.cancel()
         airPlayRecoveryTask = nil
         airPlayCapture.stop()
+        directFrame = nil
         airPlayFrame = nil
         hasPresentedAirPlayVideo = false
+        currentAirPlayAttemptHasPresentedFrame = false
         framesPerSecond = 0
-        if stoppedSource == .airPlay, hadLiveVisualChannel {
+        if hadLiveVisualChannel {
             onVisualChannelStopped?(stoppedSource)
         }
     }
 
     func selectStreamProfile(_ profile: StreamQualityProfile) {
-        guard streamProfile != profile else { return }
+        guard visualSource == .direct, streamProfile != profile else { return }
         streamProfile = profile
         guard isConnected else { return }
         stopStreaming()
@@ -251,17 +310,28 @@ final class AutomationWorkspaceModel {
     func selectVisualSource(_ source: VisualSource) {
         hasSelectedVisualSource = true
         UserDefaults.standard.set(source.rawValue, forKey: Self.visualSourceKey)
+        if source == .airPlay { refreshScreenCapturePermission() }
         guard visualSource != source else { return }
+        let shouldRestartVisualChannel = isControlReady
         stopStreaming()
         visualSource = source
+        directFrame = nil
         airPlayFrame = nil
         framesPerSecond = 0
         issue = nil
-        if source == .direct { startStreaming() }
+        if shouldRestartVisualChannel { startSelectedVisualSource() }
     }
 
     func chooseAirPlaySource() {
         guard visualSource == .airPlay else { return }
+        currentAirPlayAttemptHasPresentedFrame = false
+        refreshScreenCapturePermission()
+        guard hasScreenCapturePermission, !screenCapturePermissionNeedsRelaunch else {
+            isChoosingAirPlaySource = false
+            issue = Self.screenCapturePermissionMessage
+            airPlayPresentationFailureSequence &+= 1
+            return
+        }
         airPlayRecoveryTask?.cancel()
         airPlayRecoveryTask = nil
         isChoosingAirPlaySource = true
@@ -278,6 +348,14 @@ final class AutomationWorkspaceModel {
 
     func waitForAirPlaySource() {
         guard visualSource == .airPlay, isControlReady else { return }
+        currentAirPlayAttemptHasPresentedFrame = false
+        refreshScreenCapturePermission()
+        guard hasScreenCapturePermission, !screenCapturePermissionNeedsRelaunch else {
+            isChoosingAirPlaySource = false
+            issue = Self.screenCapturePermissionMessage
+            airPlayPresentationFailureSequence &+= 1
+            return
+        }
         airPlayRecoveryTask?.cancel()
         airPlayRecoveryTask = nil
         isChoosingAirPlaySource = true
@@ -294,6 +372,55 @@ final class AutomationWorkspaceModel {
 
     func openAirPlayReceiverSettings() {
         let settingsURL = URL(string: "x-apple.systempreferences:com.apple.AirDrop-Handoff-Settings.extension")
+        if let settingsURL, NSWorkspace.shared.open(settingsURL) { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
+    }
+
+    func requestScreenCapturePermission() {
+        guard visualSource == .airPlay else { return }
+        if AirPlayCaptureService.hasScreenCapturePermission() {
+            hasScreenCapturePermission = true
+            screenCapturePermissionNeedsRelaunch = false
+            screenCapturePermissionRequestWasDenied = false
+            issue = nil
+            return
+        }
+
+        let requestGranted = AirPlayCaptureService.requestScreenCapturePermission()
+        let resolution = ScreenCapturePermissionRequestResolution.resolve(
+            requestGranted: requestGranted,
+            preflightAfterRequest: AirPlayCaptureService.hasScreenCapturePermission()
+        )
+        hasScreenCapturePermission = resolution.hasPermission
+        screenCapturePermissionNeedsRelaunch = resolution.needsRelaunch
+        screenCapturePermissionRequestWasDenied = resolution.requestWasDenied
+        issue = resolution.requestWasDenied
+            ? Self.screenCapturePermissionDeniedMessage
+            : Self.screenCapturePermissionMessage
+    }
+
+    func refreshScreenCapturePermission() {
+        let previouslyHadPermission = hasScreenCapturePermission
+        hasScreenCapturePermission = AirPlayCaptureService.hasScreenCapturePermission()
+        if hasScreenCapturePermission, !previouslyHadPermission {
+            screenCapturePermissionNeedsRelaunch = true
+            screenCapturePermissionRequestWasDenied = false
+            issue = Self.screenCapturePermissionMessage
+            return
+        }
+        if hasScreenCapturePermission, !screenCapturePermissionNeedsRelaunch {
+            screenCapturePermissionRequestWasDenied = false
+            if issue == Self.screenCapturePermissionMessage ||
+                issue == Self.screenCapturePermissionDeniedMessage {
+                issue = nil
+            }
+        }
+    }
+
+    func openScreenCaptureSettings() {
+        let settingsURL = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+        )
         if let settingsURL, NSWorkspace.shared.open(settingsURL) { return }
         NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
     }
@@ -337,16 +464,36 @@ final class AutomationWorkspaceModel {
         default: .landscapeLeft
         }
         Task { [weak self] in
+            guard let self else { return }
             do {
                 try await client.rotate(to: target, session: session)
-                try await Task.sleep(for: .milliseconds(250))
-                let state = try await client.deviceState(session: session)
-                guard self?.connectionToken == connectionToken else { return }
-                self?.apply(state: state)
-                self?.clearControlIssueAfterSuccess()
-                self?.logger.debug("iPhone orientation command completed", category: .input)
+                guard self.connectionToken == connectionToken else { return }
+
+                let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+                var lastState: AutomationDeviceState?
+                repeat {
+                    try await Task.sleep(for: .milliseconds(100))
+                    let state = try await client.deviceState(session: session)
+                    guard self.connectionToken == connectionToken else { return }
+                    lastState = state
+                    guard DeviceOrientationResolutionPolicy.screen(
+                        state.screen.screenSize,
+                        matches: target
+                    ) else { continue }
+
+                    self.applyConfirmed(state: state)
+                    self.clearControlIssueAfterSuccess()
+                    self.logger.debug("iPhone orientation command completed", category: .input)
+                    return
+                } while ContinuousClock.now < deadline
+
+                if let lastState { self.applyConfirmed(state: lastState) }
+                throw WebDriverAgentIssue(
+                    code: "LUM-WDA-106",
+                    message: "The current iPhone interface did not accept the requested orientation."
+                )
             } catch {
-                self?.handleControlFailure(
+                self.handleControlFailure(
                     error,
                     connectionToken: connectionToken,
                     logMessage: "iPhone orientation command failed"
@@ -490,14 +637,13 @@ final class AutomationWorkspaceModel {
         controlHealthProbeID = probeID
         controlHealthProbeTask = Task { [weak self] in
             do {
-                let state = try await client.deviceState(session: session)
+                try await client.checkSessionHealth(session: session)
                 guard let self,
                       self.connectionToken == connectionToken,
                       self.controlHealthProbeID == probeID else { return }
                 self.controlHealthProbeTask = nil
                 self.controlHealthProbeID = nil
                 self.consecutiveControlTimeouts = 0
-                self.apply(state: state)
                 if self.visualSource != .airPlay || self.isStreaming {
                     self.issue = nil
                 }
@@ -537,9 +683,8 @@ final class AutomationWorkspaceModel {
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .seconds(5))
-                    let state = try await client.deviceState(session: session)
+                    try await client.checkSessionHealth(session: session)
                     guard let self, self.connectionToken == connectionToken else { return }
-                    self.apply(state: state)
                     self.clearControlIssueAfterSuccess()
                 } catch is CancellationError {
                     return
@@ -574,7 +719,11 @@ final class AutomationWorkspaceModel {
     }
 
     private func scheduleAirPlayRecovery() {
-        guard visualSource == .airPlay, isControlReady else { return }
+        refreshScreenCapturePermission()
+        guard visualSource == .airPlay,
+              isControlReady,
+              hasScreenCapturePermission,
+              !screenCapturePermissionNeedsRelaunch else { return }
         airPlayRecoveryTask?.cancel()
         airPlayRecoveryTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(750))
@@ -585,6 +734,7 @@ final class AutomationWorkspaceModel {
                   !self.isStreaming else { return }
             self.airPlayRecoveryTask = nil
             self.isChoosingAirPlaySource = true
+            self.currentAirPlayAttemptHasPresentedFrame = false
             self.airPlayCapture.waitForMirroredContent(timeout: .seconds(300))
             self.logger.info("Waiting for the AirPlay receiver window to return", category: .mirroring)
         }
@@ -605,19 +755,44 @@ final class AutomationWorkspaceModel {
         }
 
         guard let issue = error as? WebDriverAgentIssue else { return false }
+        if issue.code == "LUM-WDA-104" || issue.code == "LUM-WDA-105" { return true }
         let diagnostic = "\(issue.code) \(issue.message)".lowercased()
         return diagnostic.contains("invalid session") ||
             diagnostic.contains("no such session") ||
             diagnostic.contains("session does not exist")
     }
 
-    private func accept(decoded: CGImage, at now: ContinuousClock.Instant) {
+    private static let screenCapturePermissionMessage =
+        "Allow Screen Recording for Lumina, then quit and reopen it once. Automatic AirPlay retries will stay paused until permission is available."
+
+    private static let screenCapturePermissionDeniedMessage =
+        "Screen Recording was not granted. Enable Lumina in System Settings, then quit and reopen it once."
+
+    private func accept(decoded: CGImage, at now: ContinuousClock.Instant, streamID: UUID) {
+        guard visualSource == .direct, self.streamID == streamID else { return }
+        let isFirstFrame = !hasAnnouncedDirectVisualChannel
         directFrame = decoded
+        hasAnnouncedDirectVisualChannel = true
         issue = nil
         recordFrame(at: now)
+        if isFirstFrame { onVisualChannelStarted?(.direct) }
+    }
+
+    private func directStreamDidFinish(streamID: UUID) {
+        guard self.streamID == streamID else { return }
+        let hadLiveVisualChannel = hasAnnouncedDirectVisualChannel
+        isStreaming = false
+        streamTask = nil
+        self.streamID = nil
+        streamClient = nil
+        directFrame = nil
+        hasAnnouncedDirectVisualChannel = false
+        framesPerSecond = 0
+        if hadLiveVisualChannel { onVisualChannelStopped?(.direct) }
     }
 
     private func acceptAirPlay(frame: CGImage, at now: ContinuousClock.Instant) {
+        currentAirPlayAttemptHasPresentedFrame = true
         airPlayFrame = frame
         hasPresentedAirPlayVideo = true
         issue = nil
@@ -631,6 +806,17 @@ final class AutomationWorkspaceModel {
         activeApplication = state.activeApplication
     }
 
+    private func applyConfirmed(state: AutomationDeviceState) {
+        apply(state: AutomationDeviceState(
+            screen: state.screen,
+            orientation: DeviceOrientationResolutionPolicy.resolve(
+                reported: state.orientation,
+                screen: state.screen.screenSize
+            ),
+            activeApplication: state.activeApplication
+        ))
+    }
+
     private func recordFrame(at now: ContinuousClock.Instant) {
         frameTimes.append(now)
         let cutoff = now.advanced(by: .seconds(-1))
@@ -640,14 +826,15 @@ final class AutomationWorkspaceModel {
 
     private func runScreenshotFallback(
         client: any WebDriverAgentControlling,
-        session: AutomationSession
+        session: AutomationSession,
+        streamID: UUID
     ) async {
         while !Task.isCancelled {
             let started = ContinuousClock.now
             do {
                 let frame = try await client.screenshot(session: session)
                 if let decoded = await frameDecoder.decode(frame) {
-                    accept(decoded: decoded, at: .now)
+                    accept(decoded: decoded, at: .now, streamID: streamID)
                 }
                 let elapsed = started.duration(to: .now)
                 let target = Duration.milliseconds(200)

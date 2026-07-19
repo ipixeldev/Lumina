@@ -1,6 +1,28 @@
 import Foundation
 import Observation
 
+nonisolated enum VisualSourceSelectionPolicy {
+    static func allowsSelection(
+        in state: ApplicationState,
+        isChecking: Bool,
+        isBuildingRunner: Bool,
+        isSettingUpRunner: Bool
+    ) -> Bool {
+        guard !isChecking, !isBuildingRunner, !isSettingUpRunner else { return false }
+        return switch state {
+        case .checkingEnvironment,
+             .runnerBuilding,
+             .runnerInstalling,
+             .runnerLaunching,
+             .connectingAutomation,
+             .stopping:
+            false
+        default:
+            true
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class SetupAssistantModel {
@@ -128,6 +150,13 @@ final class SetupAssistantModel {
     var visualSource: VisualSource { automationWorkspace.visualSource }
     var hasSelectedVisualSource: Bool { automationWorkspace.hasSelectedVisualSource }
     var isChoosingAirPlaySource: Bool { automationWorkspace.isChoosingAirPlaySource }
+    var hasScreenCapturePermission: Bool { automationWorkspace.hasScreenCapturePermission }
+    var screenCapturePermissionNeedsRelaunch: Bool {
+        automationWorkspace.screenCapturePermissionNeedsRelaunch
+    }
+    var screenCapturePermissionRequestWasDenied: Bool {
+        automationWorkspace.screenCapturePermissionRequestWasDenied
+    }
     var isAirPlayVideoActive: Bool {
         visualSource == .airPlay && automationWorkspace.isStreaming && automationWorkspace.airPlayFrame != nil
     }
@@ -146,15 +175,20 @@ final class SetupAssistantModel {
     }
     var hasReadyDevice: Bool { selectedBuildDevice != nil }
     var canSelectVisualSource: Bool {
-        switch stateMachine.state {
-        case .appStarting, .stopped, .xcodeMissing, .sdkMissing, .certificateMissing, .noDevice, .requiresUserAction:
-            true
-        default:
-            false
-        }
+        VisualSourceSelectionPolicy.allowsSelection(
+            in: stateMachine.state,
+            isChecking: isChecking,
+            isBuildingRunner: isBuildingRunner,
+            isSettingUpRunner: isSettingUpRunner
+        )
     }
 
     func selectVisualSource(_ source: VisualSource) {
+        guard canSelectVisualSource else { return }
+        let isChangingSource = source != visualSource
+        if isChangingSource, stateMachine.state == .connected {
+            transitionIfPossible(to: .startingMirror, category: .mirroring)
+        }
         automationWorkspace.selectVisualSource(source)
         if source == .airPlay {
             checkAirPlayReceiver()
@@ -218,6 +252,14 @@ final class SetupAssistantModel {
 
     func openAirPlayReceiverSettings() {
         automationWorkspace.openAirPlayReceiverSettings()
+    }
+
+    func requestScreenCapturePermission() {
+        automationWorkspace.requestScreenCapturePermission()
+    }
+
+    func openScreenCaptureSettings() {
+        automationWorkspace.openScreenCaptureSettings()
     }
 
     var canBuildRunner: Bool {
@@ -341,20 +383,22 @@ final class SetupAssistantModel {
             productURL: buildResult.productURL,
             xctestrunURL: buildResult.xctestrunURL,
             bundleIdentifier: buildResult.bundleIdentifier,
+            artifactIdentity: buildResult.artifactIdentity,
             developerConnectionHosts: device.developerConnectionHosts
         )
         lastRunnerSetupConfiguration = configuration
+        let markerKey = installationMarkerKey(for: configuration)
         runnerConnection = nil
         runnerSetupIssue = nil
         runnerIsInstalled = nil
         runnerSetupTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let markerKey = installationMarkerKey(for: configuration)
-                var installed = UserDefaults.standard.bool(forKey: markerKey)
-                if !installed {
-                    installed = await runnerSetupManager.isInstalled(configuration: configuration)
-                }
+                // A marker is written only after this exact Lumina control
+                // extension revision has been installed. An older WDA bundle
+                // may share the identifier but cannot serve the overlay-safe
+                // AirPlay input routes, so it must be replaced once.
+                let installed = UserDefaults.standard.bool(forKey: markerKey)
                 runnerIsInstalled = installed
                 if !installed {
                     guard transitionIfPossible(to: .runnerInstalling(progress: nil), category: .build) else {
@@ -364,11 +408,13 @@ final class SetupAssistantModel {
                     }
                     logger.info("WebDriverAgent installation started", category: .build)
                     try await runnerSetupManager.install(configuration: configuration)
-                    try Task.checkCancellation()
+                    // devicectl success proves that this exact verified artifact
+                    // is installed. Keep that fact across transient launch or
+                    // Wi-Fi tunnel failures; only a stale live extension
+                    // handshake invalidates it below.
                     UserDefaults.standard.set(true, forKey: markerKey)
                     runnerIsInstalled = true
-                } else {
-                    UserDefaults.standard.set(true, forKey: markerKey)
+                    try Task.checkCancellation()
                 }
                 guard transitionIfPossible(to: .runnerLaunching, category: .build) else {
                     runnerSetupTask = nil
@@ -382,6 +428,10 @@ final class SetupAssistantModel {
                 guard transitionIfPossible(to: .connectingAutomation, category: .build) else { return }
                 try await automationWorkspace.connect(to: connection.endpoint)
                 try Task.checkCancellation()
+                // Reaffirm the installed marker after the live runner proves
+                // that it exposes Lumina's current control extension.
+                UserDefaults.standard.set(true, forKey: markerKey)
+                runnerIsInstalled = true
                 runnerConnection = connection
                 guard transitionIfPossible(to: .automationReady, category: .automation),
                       transitionIfPossible(to: .startingMirror, category: .mirroring) else { return }
@@ -409,6 +459,13 @@ final class SetupAssistantModel {
             } catch {
                 runnerSetupTask = nil
                 automaticStartAttemptedDeviceID = nil
+                if let issue = error as? WebDriverAgentIssue, issue.code == "LUM-WDA-105" {
+                    // Only a failed live extension handshake invalidates an
+                    // existing exact-artifact marker. Transient launch, tunnel,
+                    // or Wi-Fi errors must not force a reinstall on the next run.
+                    UserDefaults.standard.removeObject(forKey: markerKey)
+                    runnerIsInstalled = false
+                }
                 let issue = RunnerSetupLogParser.launchIssue(for: error.localizedDescription)
                 runnerSetupIssue = issue
                 transitionIfPossible(to: .runnerInstallFailed(message: issue.explanation), category: .build)
@@ -482,6 +539,12 @@ final class SetupAssistantModel {
                 logger.error("iPhone reconnect failed with \(error.issue.code)", category: .automation)
             } catch {
                 reconnectTask = nil
+                if let issue = error as? WebDriverAgentIssue, issue.code == "LUM-WDA-105" {
+                    UserDefaults.standard.removeObject(
+                        forKey: installationMarkerKey(for: configuration)
+                    )
+                    runnerIsInstalled = false
+                }
                 let issue = RunnerSetupLogParser.launchIssue(for: error.localizedDescription)
                 runnerSetupIssue = issue
                 transitionIfPossible(to: .requiresUserAction(message: issue.explanation), category: .automation)
@@ -647,12 +710,13 @@ final class SetupAssistantModel {
             productURL: buildResult.productURL,
             xctestrunURL: buildResult.xctestrunURL,
             bundleIdentifier: buildResult.bundleIdentifier,
+            artifactIdentity: buildResult.artifactIdentity,
             developerConnectionHosts: device.developerConnectionHosts
         )
     }
 
     private func installationMarkerKey(for configuration: RunnerSetupConfiguration) -> String {
-        "installedRunner.\(configuration.deviceIdentifier).\(configuration.bundleIdentifier)"
+        configuration.installationTrustKey
     }
 
     private func visualChannelDidStart(_ source: VisualSource) {
@@ -673,7 +737,7 @@ final class SetupAssistantModel {
     private func visualChannelDidStop(_ source: VisualSource) {
         guard source == visualSource, stateMachine.state == .connected else { return }
         transitionIfPossible(to: .startingMirror, category: .mirroring)
-        logger.info("AirPlay video stopped; the XCTest control channel remains connected", category: .mirroring)
+        logger.info("Selected video channel stopped; the XCTest control channel remains connected", category: .mirroring)
     }
 
     private func controlChannelDidStop() {

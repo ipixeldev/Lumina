@@ -77,7 +77,7 @@ struct SetupAssistantView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Choose video method")
                         .font(.title2.bold())
-                    Text("Choose before Lumina connects. Controls use the same signed local runner with either method.")
+                    Text("Choose now or switch later. Both video methods keep the same signed XCTest control session.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -247,7 +247,7 @@ private struct AirPlayPreparationView: View {
                 if model.isAirPlayControlReady {
                     Label("On iPhone, open Control Center → Screen Mirroring.", systemImage: "1.circle.fill")
                     Label("Choose \(model.airPlayReceiverName).", systemImage: "2.circle.fill")
-                    Label("Lumina will capture the receiver and place its device-sized control window above the AirPlay Space automatically.", systemImage: "3.circle.fill")
+                    Label("Lumina will capture the receiver, return to the desktop, and open its device-sized control window automatically.", systemImage: "3.circle.fill")
                 } else {
                     Label("Let Lumina finish connecting the XCTest control channel first.", systemImage: "1.circle.fill")
                     Label("Keep the iPhone paired by USB or developer Wi-Fi.", systemImage: "2.circle.fill")
@@ -255,6 +255,39 @@ private struct AirPlayPreparationView: View {
                 }
             }
             .font(.callout)
+
+            if model.screenCapturePermissionNeedsRelaunch {
+                Label("Permission changed. Quit and reopen Lumina once before starting AirPlay.", systemImage: "arrow.clockwise.circle.fill")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
+            } else if !model.hasScreenCapturePermission {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Screen Recording is required only to copy the native AirPlay video into Lumina's window.", systemImage: "rectangle.inset.filled.and.person.filled")
+                        .font(.callout.weight(.semibold))
+                    if model.screenCapturePermissionRequestWasDenied {
+                        Button("Open Screen Recording Settings", systemImage: "gear") {
+                            model.openScreenCaptureSettings()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Text("Enable Lumina in System Settings, then quit and reopen it once.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Button("Allow Screen Recording…", systemImage: "lock.open") {
+                            model.requestScreenCapturePermission()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Text("After enabling Lumina in System Settings, quit and run it again once. A development-signed build keeps this permission across future rebuilds.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(12)
+                .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
+            }
 
             HStack {
                 Button("Open AirPlay Receiver Settings", systemImage: "gear") {
@@ -290,9 +323,10 @@ private struct AirPlayPreparationView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(
                     !model.isAirPlayControlReady ||
+                    !model.hasScreenCapturePermission ||
+                    model.screenCapturePermissionNeedsRelaunch ||
                     model.isChoosingAirPlaySource ||
-                    model.isAirPlayVideoActive ||
-                    model.airPlayReceiverReport?.isScreenMirroringAdvertised != true
+                    model.isAirPlayVideoActive
                 )
                 .accessibilityIdentifier("chooseAirPlayWindowButton")
 
@@ -302,6 +336,11 @@ private struct AirPlayPreparationView: View {
                     Button("Choose Window Manually…", systemImage: "cursorarrow.click") {
                         model.chooseAirPlaySource()
                     }
+                    .disabled(
+                        !model.hasScreenCapturePermission ||
+                        model.screenCapturePermissionNeedsRelaunch ||
+                        model.isChoosingAirPlaySource
+                    )
                 }
             }
 
@@ -311,7 +350,7 @@ private struct AirPlayPreparationView: View {
                     .foregroundStyle(.orange)
             }
 
-            Text("Apple's AirPlay receiver supplies video only. Lumina places its device-sized controls above the system AirPlay Space and routes every click and gesture through the separate XCTest control channel.")
+            Text("Apple's AirPlay receiver supplies smooth video only. Lumina captures that video into its device-sized desktop window and routes every click and gesture through the separate XCTest control channel.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

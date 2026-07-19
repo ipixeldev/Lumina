@@ -4,8 +4,8 @@ import Testing
 
 @MainActor
 struct DeviceWindowPresentationPolicyTests {
-    @Test("AirPlay controls join the receiver's full-screen Space")
-    func airPlayOverlayBehavior() {
+    @Test("AirPlay controls stay on Lumina's desktop Space")
+    func airPlayDesktopWindowBehavior() {
         let base: NSWindow.CollectionBehavior = [
             .primary,
             .managed,
@@ -19,16 +19,14 @@ struct DeviceWindowPresentationPolicyTests {
             base: base
         )
 
-        #expect(behavior.contains(.canJoinAllApplications))
-        #expect(behavior.contains(.canJoinAllSpaces))
-        #expect(behavior.contains(.fullScreenAuxiliary))
-        #expect(behavior.contains(.transient))
-        #expect(behavior.contains(.ignoresCycle))
-        #expect(!behavior.contains(.primary))
-        #expect(!behavior.contains(.managed))
-        #expect(!behavior.contains(.participatesInCycle))
+        #expect(behavior.contains(.primary))
+        #expect(behavior.contains(.managed))
+        #expect(behavior.contains(.participatesInCycle))
+        #expect(behavior.contains(.moveToActiveSpace))
+        #expect(!behavior.contains(.canJoinAllApplications))
+        #expect(!behavior.contains(.canJoinAllSpaces))
+        #expect(!behavior.contains(.fullScreenAuxiliary))
         #expect(!behavior.contains(.fullScreenPrimary))
-        #expect(!behavior.contains(.moveToActiveSpace))
     }
 
     @Test("Direct controls keep the window's original desktop behavior")
@@ -36,5 +34,40 @@ struct DeviceWindowPresentationPolicyTests {
         let base: NSWindow.CollectionBehavior = [.managed, .participatesInCycle]
 
         #expect(DeviceWindowPresentationPolicy.collectionBehavior(for: .direct, base: base) == base)
+    }
+
+    @Test("AirPlay waits for a visible active-Space desktop anchor")
+    func airPlayDesktopAnchorReadiness() {
+        #expect(AirPlayDesktopHandoffPolicy.anchorIsReady(
+            applicationIsActive: true,
+            anchorIsVisible: true,
+            anchorIsOnActiveSpace: true,
+            anchorIsKeyWindow: true
+        ))
+
+        #expect(!AirPlayDesktopHandoffPolicy.anchorIsReady(
+            applicationIsActive: false,
+            anchorIsVisible: true,
+            anchorIsOnActiveSpace: true,
+            anchorIsKeyWindow: true
+        ))
+        #expect(!AirPlayDesktopHandoffPolicy.anchorIsReady(
+            applicationIsActive: true,
+            anchorIsVisible: false,
+            anchorIsOnActiveSpace: true,
+            anchorIsKeyWindow: true
+        ))
+        #expect(!AirPlayDesktopHandoffPolicy.anchorIsReady(
+            applicationIsActive: true,
+            anchorIsVisible: true,
+            anchorIsOnActiveSpace: false,
+            anchorIsKeyWindow: true
+        ))
+        #expect(!AirPlayDesktopHandoffPolicy.anchorIsReady(
+            applicationIsActive: true,
+            anchorIsVisible: true,
+            anchorIsOnActiveSpace: true,
+            anchorIsKeyWindow: false
+        ))
     }
 }

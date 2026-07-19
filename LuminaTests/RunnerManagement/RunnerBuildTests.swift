@@ -3,6 +3,34 @@ import Testing
 @testable import Lumina
 
 struct RunnerBuildTests {
+    @Test("Bundled control extension advertises the cache revision")
+    func patchRevisionMatchesRuntimeHandshake() throws {
+        let patch = try String(contentsOf: LuminaWebDriverAgentPatch.url(), encoding: .utf8)
+
+        #expect(
+            patch.contains(
+                "@\"revision\": @\"\(LuminaWebDriverAgentPatch.revision)\""
+            )
+        )
+    }
+
+    @Test("Control-extension identity includes the patch contents")
+    func patchContentsChangeCacheIdentity() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LuminaPatchIdentityTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = root.appendingPathComponent("First.patch")
+        let second = root.appendingPathComponent("Second.patch")
+        try Data("first".utf8).write(to: first)
+        try Data("second".utf8).write(to: second)
+
+        #expect(
+            LuminaWebDriverAgentPatch.cacheIdentity(for: first) !=
+                LuminaWebDriverAgentPatch.cacheIdentity(for: second)
+        )
+    }
+
     @Test("Build command uses typed arguments and unique signing values")
     func commandConstruction() {
         let configuration = configuration()
@@ -43,12 +71,7 @@ struct RunnerBuildTests {
     @Test("Successful builds require and return a matching verified signature")
     func successfulBuild() async throws {
         let configuration = configuration()
-        let productURL = configuration.derivedDataURL
-            .appendingPathComponent("Build/Products/Debug-iphoneos/WebDriverAgentRunner-Runner.app", isDirectory: true)
-        try FileManager.default.createDirectory(at: productURL, withIntermediateDirectories: true)
-        let xctestrunURL = configuration.derivedDataURL
-            .appendingPathComponent("Build/Products/WebDriverAgentRunner_iphoneos-arm64.xctestrun")
-        try Data("test configuration".utf8).write(to: xctestrunURL)
+        let (productURL, xctestrunURL) = try prepareBuildProducts(for: configuration)
         defer { try? FileManager.default.removeItem(at: configuration.derivedDataURL.deletingLastPathComponent()) }
 
         let service = RunnerBuildService(
@@ -63,6 +86,77 @@ struct RunnerBuildTests {
         #expect(result.xctestrunURL.resolvingSymlinksInPath() == xctestrunURL.resolvingSymlinksInPath())
         #expect(result.signature.teamIdentifier == "TESTTEAM1")
         #expect(result.bundleIdentifier.hasSuffix(".xctrunner"))
+        #expect(result.artifactIdentity.contains(LuminaWebDriverAgentPatch.cacheIdentity))
+        #expect(result.artifactIdentity.contains("TESTTEAM1"))
+        #expect(result.artifactIdentity.contains("test-code-directory-hash"))
+    }
+
+    @Test("Build applies the Lumina patch to an isolated source cache")
+    func patchedSourceCache() async throws {
+        let configuration = configuration()
+        let root = configuration.derivedDataURL.deletingLastPathComponent()
+        let patchURL = root.appendingPathComponent("Lumina.patch")
+        try FileManager.default.createDirectory(
+            at: configuration.sourceURL.appendingPathComponent("WebDriverAgent.xcodeproj", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try Data("before\n".utf8).write(
+            to: configuration.sourceURL.appendingPathComponent("Target.txt")
+        )
+        try Data("gitdir: an-untrusted-original-location\n".utf8).write(
+            to: configuration.sourceURL.appendingPathComponent(".git")
+        )
+        try Data(Self.testPatch.utf8).write(to: patchURL)
+        _ = try prepareBuildProducts(for: configuration)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let service = RunnerBuildService(
+            processRunner: PatchApplyingBuildRunner(),
+            sourceValidator: AcceptingSourceValidator(),
+            signatureVerifier: MatchingSignatureVerifier(),
+            patchURL: patchURL
+        )
+
+        _ = try await service.build(configuration: configuration)
+
+        let preparedURL = RunnerBuildService.preparedSourceURL(for: configuration)
+        let patchedContents = try String(
+            contentsOf: preparedURL.appendingPathComponent("Target.txt"),
+            encoding: .utf8
+        )
+        #expect(patchedContents == "after\n")
+        #expect(FileManager.default.fileExists(atPath: preparedURL.appendingPathComponent(".git").path) == false)
+        #expect(
+            try String(
+                contentsOf: preparedURL.appendingPathComponent(".lumina-source-revision"),
+                encoding: .utf8
+            ) == LuminaWebDriverAgentPatch.cacheIdentity(for: patchURL)
+        )
+        #expect(try await service.cachedBuild(configuration: configuration) != nil)
+    }
+
+    @Test("Cached runner is rejected when its Lumina patch revision is stale")
+    func stalePatchedBuildIsNotReused() async throws {
+        let configuration = configuration()
+        let root = configuration.derivedDataURL.deletingLastPathComponent()
+        let patchURL = root.appendingPathComponent("Lumina.patch")
+        _ = try prepareBuildProducts(for: configuration)
+        try Data("unused patch".utf8).write(to: patchURL)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let service = RunnerBuildService(
+            processRunner: SuccessfulBuildRunner(),
+            sourceValidator: AcceptingSourceValidator(),
+            signatureVerifier: MatchingSignatureVerifier(),
+            patchURL: patchURL
+        )
+        let markerURL = RunnerBuildService.buildRevisionMarkerURL(for: configuration)
+
+        try Data("stale-revision".utf8).write(to: markerURL)
+        #expect(try await service.cachedBuild(configuration: configuration) == nil)
+
+        try Data(LuminaWebDriverAgentPatch.cacheIdentity(for: patchURL).utf8).write(to: markerURL)
+        #expect(try await service.cachedBuild(configuration: configuration) != nil)
     }
 
     @Test("Source validation enforces the pinned revision, license, and clean tree")
@@ -98,6 +192,27 @@ struct RunnerBuildTests {
         )
     }
 
+    private func prepareBuildProducts(
+        for configuration: RunnerBuildConfiguration
+    ) throws -> (productURL: URL, xctestrunURL: URL) {
+        let productURL = configuration.derivedDataURL
+            .appendingPathComponent("Build/Products/Debug-iphoneos/WebDriverAgentRunner-Runner.app", isDirectory: true)
+        try FileManager.default.createDirectory(at: productURL, withIntermediateDirectories: true)
+        let xctestrunURL = configuration.derivedDataURL
+            .appendingPathComponent("Build/Products/WebDriverAgentRunner_iphoneos-arm64.xctestrun")
+        try Data("test configuration".utf8).write(to: xctestrunURL)
+        return (productURL, xctestrunURL)
+    }
+
+    private static let testPatch = """
+    diff --git a/Target.txt b/Target.txt
+    --- a/Target.txt
+    +++ b/Target.txt
+    @@ -1 +1 @@
+    -before
+    +after
+    """
+
     private func certificate(id: String, expiration: Date, valid: Bool) -> DeveloperCertificateIdentity {
         DeveloperCertificateIdentity(
             id: id,
@@ -116,13 +231,32 @@ private nonisolated struct SuccessfulBuildRunner: ProcessRunning {
     }
 }
 
+private nonisolated struct PatchApplyingBuildRunner: ProcessRunning {
+    func run(_ request: CommandRequest) async throws -> CommandResult {
+        if request.executableURL.path == "/usr/bin/git" {
+            if !request.arguments.contains("--check"),
+               let sourceIndex = request.arguments.firstIndex(of: "-C"),
+               request.arguments.indices.contains(sourceIndex + 1) {
+                let sourceURL = URL(fileURLWithPath: request.arguments[sourceIndex + 1], isDirectory: true)
+                try Data("after\n".utf8).write(to: sourceURL.appendingPathComponent("Target.txt"))
+            }
+            return CommandResult(standardOutput: "", standardError: "", exitCode: 0)
+        }
+        return CommandResult(standardOutput: "** BUILD SUCCEEDED **", standardError: "", exitCode: 0)
+    }
+}
+
 private nonisolated struct AcceptingSourceValidator: WebDriverAgentSourceValidating {
     func validate(sourceURL _: URL) async throws {}
 }
 
 private nonisolated struct MatchingSignatureVerifier: CodeSignatureVerifying {
     func verify(appURL _: URL, expectedTeamIdentifier: String, expectedBundleIdentifier: String) throws -> RunnerCodeSignature {
-        RunnerCodeSignature(identifier: expectedBundleIdentifier, teamIdentifier: expectedTeamIdentifier)
+        RunnerCodeSignature(
+            identifier: expectedBundleIdentifier,
+            teamIdentifier: expectedTeamIdentifier,
+            codeDirectoryHash: "test-code-directory-hash"
+        )
     }
 }
 

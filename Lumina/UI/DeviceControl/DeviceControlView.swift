@@ -5,6 +5,8 @@ struct DeviceControlView: View {
     @Bindable var model: AutomationWorkspaceModel
     let reconnect: () -> Void
     let isReconnecting: Bool
+    let selectVisualSource: (VisualSource) -> Void
+    let canSelectVisualSource: Bool
 
     @State private var privacyBlurred = false
     var body: some View {
@@ -160,7 +162,21 @@ struct DeviceControlView: View {
             }
 
             Section("Video") {
-                Label(model.visualSource.title, systemImage: model.visualSource == .airPlay ? "airplayvideo" : "cable.connector")
+                ForEach(VisualSource.allCases) { source in
+                    Button {
+                        selectVisualSource(source)
+                    } label: {
+                        if model.visualSource == source {
+                            Label("\(source.title) — Selected", systemImage: "checkmark")
+                        } else {
+                            Label(
+                                "Use \(source.title) Video",
+                                systemImage: source == .airPlay ? "airplayvideo" : "cable.connector"
+                            )
+                        }
+                    }
+                    .disabled(!canSelectVisualSource || model.visualSource == source)
+                }
                 if model.visualSource == .airPlay {
                     Button("Choose Mirrored Window…", systemImage: "macwindow.on.rectangle", action: model.chooseAirPlaySource)
                 }

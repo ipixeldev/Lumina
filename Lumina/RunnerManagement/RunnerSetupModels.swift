@@ -5,6 +5,7 @@ nonisolated struct RunnerSetupConfiguration: Equatable, Sendable {
     let productURL: URL
     let xctestrunURL: URL
     let bundleIdentifier: String
+    let artifactIdentity: String
     let developerConnectionHosts: [String]
     let serverPort: UInt16
 
@@ -14,11 +15,16 @@ nonisolated struct RunnerSetupConfiguration: Equatable, Sendable {
         return String(bundleIdentifier.dropLast(testRunnerSuffix.count))
     }
 
+    var installationTrustKey: String {
+        "installedRunner.\(artifactIdentity).\(deviceIdentifier).\(bundleIdentifier)"
+    }
+
     init(
         deviceIdentifier: String,
         productURL: URL,
         xctestrunURL: URL,
         bundleIdentifier: String,
+        artifactIdentity: String,
         developerConnectionHosts: [String],
         serverPort: UInt16 = 8100
     ) {
@@ -26,6 +32,7 @@ nonisolated struct RunnerSetupConfiguration: Equatable, Sendable {
         self.productURL = productURL
         self.xctestrunURL = xctestrunURL
         self.bundleIdentifier = bundleIdentifier
+        self.artifactIdentity = artifactIdentity
         self.developerConnectionHosts = developerConnectionHosts
         self.serverPort = serverPort
     }

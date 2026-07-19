@@ -34,6 +34,6 @@
 	<key>NSQuitAlwaysKeepsWindows</key>
 	<false/>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>Lumina captures only the AirPlay mirrored iPhone window you select.</string>
+	<string>Lumina captures only the macOS AirPlay Receiver window that is mirroring your iPhone.</string>
 </dict>
 </plist>

@@ -92,6 +92,8 @@ nonisolated struct WebDriverAgentIssue: Error, Equatable, Sendable, LocalizedErr
 nonisolated protocol WebDriverAgentControlling: Sendable {
     func createSession() async throws -> AutomationSession
     func deleteSession(_ session: AutomationSession) async
+    func configureInteraction(session: AutomationSession, screen: DeviceScreenInfo.Size) async throws
+    func checkSessionHealth(session: AutomationSession) async throws
     func deviceState(session: AutomationSession) async throws -> AutomationDeviceState
     func snapshot(session: AutomationSession) async throws -> AutomationSnapshot
     func screenshot(session: AutomationSession) async throws -> Data
@@ -134,7 +136,15 @@ actor WebDriverAgentClient: WebDriverAgentControlling {
         guard !response.value.sessionId.isEmpty else {
             throw WebDriverAgentIssue(code: "LUM-WDA-102", message: "WebDriverAgent returned an empty session identifier.")
         }
-        return AutomationSession(id: response.value.sessionId)
+        let session = AutomationSession(id: response.value.sessionId)
+        do {
+            try await applyInteractionSettings(session: session)
+            _ = try await controlExtensionStatus(session: session)
+            return session
+        } catch {
+            await deleteSession(session)
+            throw error
+        }
     }
 
     func deleteSession(_ session: AutomationSession) async {
@@ -145,14 +155,25 @@ actor WebDriverAgentClient: WebDriverAgentControlling {
         }
     }
 
+    func configureInteraction(session: AutomationSession, screen: DeviceScreenInfo.Size) async throws {
+        let center = "\(screen.width / 2),\(screen.height / 2)"
+        try await applyInteractionSettings(session: session, activeAppDetectionPoint: center)
+    }
+
+    func checkSessionHealth(session: AutomationSession) async throws {
+        try await controlExtensionHealth(session: session)
+    }
+
     func deviceState(session: AutomationSession) async throws -> AutomationDeviceState {
-        async let screen: ValueEnvelope<DeviceScreenInfo> = request("session/\(session.id)/wda/screen")
-        async let orientation: ValueEnvelope<DeviceOrientation> = request("session/\(session.id)/orientation")
-        async let application: ValueEnvelope<ActiveApplicationInfo> = request("session/\(session.id)/wda/activeAppInfo")
-        return try await AutomationDeviceState(
-            screen: screen.value,
-            orientation: orientation.value,
-            activeApplication: application.value
+        // This single overlay-safe request is the complete control handshake.
+        // Standard orientation and active-app endpoints resolve XCUIApplication
+        // and can each stall while AirPlay exposes local.pid.0 as the foreground
+        // process, even though global XCTest input remains healthy.
+        let controlExtension = try await controlExtensionStatus(session: session)
+        return AutomationDeviceState(
+            screen: controlExtension.screen,
+            orientation: controlExtension.orientation,
+            activeApplication: Self.springBoardApplication
         )
     }
 
@@ -178,7 +199,7 @@ actor WebDriverAgentClient: WebDriverAgentControlling {
 
     func tap(at point: AutomationPoint, session: AutomationSession) async throws {
         let _: EmptyEnvelope = try await request(
-            "session/\(session.id)/wda/tap",
+            "session/\(session.id)/wda/lumina/tap",
             method: "POST",
             body: ["x": point.x, "y": point.y]
         )
@@ -186,7 +207,7 @@ actor WebDriverAgentClient: WebDriverAgentControlling {
 
     func drag(from start: AutomationPoint, to end: AutomationPoint, duration: Double, session: AutomationSession) async throws {
         let _: EmptyEnvelope = try await request(
-            "session/\(session.id)/wda/dragfromtoforduration",
+            "session/\(session.id)/wda/lumina/drag",
             method: "POST",
             body: [
                 "fromX": start.x, "fromY": start.y,
@@ -212,6 +233,71 @@ actor WebDriverAgentClient: WebDriverAgentControlling {
         )
     }
 
+    private func applyInteractionSettings(
+        session: AutomationSession,
+        activeAppDetectionPoint: String? = nil
+    ) async throws {
+        var settings: [String: Any] = [
+            "defaultActiveApplication": "com.apple.springboard"
+        ]
+        if let activeAppDetectionPoint {
+            settings["activeAppDetectionPoint"] = activeAppDetectionPoint
+        }
+        let _: EmptyEnvelope = try await request(
+            "session/\(session.id)/appium/settings",
+            method: "POST",
+            body: ["settings": settings]
+        )
+    }
+
+    private func controlExtensionStatus(
+        session: AutomationSession
+    ) async throws -> LuminaControlExtensionStatus {
+        let response: ValueEnvelope<LuminaControlExtensionStatus>
+        do {
+            response = try await request("session/\(session.id)/wda/lumina/status")
+        } catch let error as URLError {
+            throw error
+        } catch {
+            throw Self.controlExtensionIssue
+        }
+
+        try validateControlExtension(
+            revision: response.value.revision,
+            capabilities: response.value.capabilities
+        )
+        guard response.value.screen.screenSize.width > 0,
+              response.value.screen.screenSize.height > 0 else {
+            throw Self.controlExtensionIssue
+        }
+        return response.value
+    }
+
+    private func controlExtensionHealth(session: AutomationSession) async throws {
+        let response: ValueEnvelope<LuminaControlExtensionHealth>
+        do {
+            response = try await request("session/\(session.id)/wda/lumina/health")
+        } catch let error as URLError {
+            throw error
+        } catch {
+            throw Self.controlExtensionIssue
+        }
+        try validateControlExtension(
+            revision: response.value.revision,
+            capabilities: response.value.capabilities
+        )
+    }
+
+    private func validateControlExtension(
+        revision: String,
+        capabilities: [String]
+    ) throws {
+        guard revision == LuminaWebDriverAgentPatch.revision,
+              Self.requiredControlCapabilities.isSubset(of: Set(capabilities)) else {
+            throw Self.controlExtensionIssue
+        }
+    }
+
     func pressButton(_ button: DeviceButton, session: AutomationSession) async throws {
         let _: EmptyEnvelope = try await request(
             "session/\(session.id)/wda/pressButton",
@@ -230,7 +316,7 @@ actor WebDriverAgentClient: WebDriverAgentControlling {
 
     func rotate(to orientation: DeviceOrientation, session: AutomationSession) async throws {
         let _: EmptyEnvelope = try await request(
-            "session/\(session.id)/orientation",
+            "session/\(session.id)/wda/lumina/orientation",
             method: "POST",
             body: ["orientation": orientation.rawValue]
         )
@@ -270,6 +356,37 @@ actor WebDriverAgentClient: WebDriverAgentControlling {
         }
         return WebDriverAgentIssue(code: fallbackCode, message: "The automation command failed.")
     }
+
+    private static let springBoardApplication = ActiveApplicationInfo(
+        bundleId: "com.apple.springboard",
+        name: "SpringBoard",
+        pid: nil
+    )
+
+    private static let requiredControlCapabilities: Set<String> = [
+        "globalTap",
+        "globalDrag",
+        "globalOrientation",
+        "overlayScreen",
+        "overlayOrientation"
+    ]
+
+    private static let controlExtensionIssue = WebDriverAgentIssue(
+        code: "LUM-WDA-105",
+        message: "The installed iPhone runner does not contain Lumina's current control extension. Reinstall the verified runner once and reconnect."
+    )
+}
+
+private nonisolated struct LuminaControlExtensionStatus: Decodable, Sendable {
+    let revision: String
+    let capabilities: [String]
+    let screen: DeviceScreenInfo
+    let orientation: DeviceOrientation
+}
+
+private nonisolated struct LuminaControlExtensionHealth: Decodable, Sendable {
+    let revision: String
+    let capabilities: [String]
 }
 
 private nonisolated struct ValueEnvelope<Value: Decodable & Sendable>: Decodable, Sendable {

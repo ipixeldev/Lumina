@@ -1,0 +1,184 @@
+diff --git a/WebDriverAgentLib/Commands/FBCustomCommands.m b/WebDriverAgentLib/Commands/FBCustomCommands.m
+index 4c4803ff..f221cf61 100644
+--- a/WebDriverAgentLib/Commands/FBCustomCommands.m
++++ b/WebDriverAgentLib/Commands/FBCustomCommands.m
+@@ -22,9 +22,11 @@
+ #import "FBRunLoopSpinner.h"
+ #import "FBScreen.h"
+ #import "FBSession.h"
++#import "FBXCTestDaemonsProxy.h"
+ #import "FBXCodeCompatibility.h"
+ #import "XCUIApplication.h"
+ #import "XCUIApplication+FBHelpers.h"
++#import "XCUIDevice+FBRotation.h"
+ #import "XCUIDevice+FBHelpers.h"
+ #import "XCUIDevice+FBVoiceOver.h"
+ #import "XCUIElement.h"
+@@ -31,6 +33,10 @@
+ #import "XCUIElement+FBIsVisible.h"
+ #import "XCUIElementQuery.h"
+ #import "FBUnattachedAppLauncher.h"
++#import "XCPointerEventPath.h"
++#import "XCSynthesizedEventRecord.h"
++
++static UIInterfaceOrientation FBLuminaInterfaceOrientation = UIInterfaceOrientationPortrait;
+ 
+ @implementation FBCustomCommands
+ 
+@@ -60,6 +66,13 @@ + (NSArray *)routes
+     [[FBRoute GET:@"/wda/batteryInfo"] respondWithTarget:self action:@selector(handleGetBatteryInfo:)],
+ #endif
+     [[FBRoute POST:@"/wda/pressButton"] respondWithTarget:self action:@selector(handlePressButtonCommand:)],
++    [[FBRoute POST:@"/wda/lumina/tap"] respondWithTarget:self action:@selector(handleLuminaTap:)],
++    [[FBRoute POST:@"/wda/lumina/drag"] respondWithTarget:self action:@selector(handleLuminaDrag:)],
++    [[FBRoute POST:@"/wda/lumina/orientation"] respondWithTarget:self action:@selector(handleLuminaOrientation:)],
++    [[FBRoute GET:@"/wda/lumina/health"] respondWithTarget:self action:@selector(handleLuminaHealth:)],
++    [[FBRoute GET:@"/wda/lumina/health"].withoutSession respondWithTarget:self action:@selector(handleLuminaHealth:)],
++    [[FBRoute GET:@"/wda/lumina/status"] respondWithTarget:self action:@selector(handleLuminaStatus:)],
++    [[FBRoute GET:@"/wda/lumina/status"].withoutSession respondWithTarget:self action:@selector(handleLuminaStatus:)],
+     [[FBRoute POST:@"/wda/performAccessibilityAudit"] respondWithTarget:self action:@selector(handlePerformAccessibilityAudit:)],
+     [[FBRoute POST:@"/wda/performIoHidEvent"] respondWithTarget:self action:@selector(handlePeformIOHIDEvent:)],
+     [[FBRoute POST:@"/wda/expectNotification"] respondWithTarget:self action:@selector(handleExpectNotification:)],
+@@ -109,6 +122,142 @@ + (NSArray *)routes
+   return FBResponseWithOK();
+ }
+ 
+++ (id<FBResponsePayload>)handleLuminaHealth:(FBRouteRequest *)request
++{
++  return FBResponseWithObject(@{
++    @"revision": @"overlay-input-v6",
++    @"capabilities": @[@"globalTap", @"globalDrag", @"globalOrientation", @"overlayScreen", @"overlayOrientation"],
++  });
++}
++
+++ (id<FBResponsePayload>)handleLuminaStatus:(FBRouteRequest *)request
++{
++  // The runner host has a 320x480 compatibility canvas. XCUIScreen captures
++  // the rendered device display without resolving XCUIApplication or
++  // local.pid.0, and proves whether the foreground interface really rotated.
++  CGSize screenSize = XCUIScreen.mainScreen.screenshot.image.size;
++  UIDeviceOrientation deviceOrientation = XCUIDevice.sharedDevice.orientation;
++  if (screenSize.width > screenSize.height) {
++    FBLuminaInterfaceOrientation = deviceOrientation == UIDeviceOrientationLandscapeRight
++      ? UIInterfaceOrientationLandscapeLeft
++      : UIInterfaceOrientationLandscapeRight;
++  } else {
++    FBLuminaInterfaceOrientation = deviceOrientation == UIDeviceOrientationPortraitUpsideDown
++      ? UIInterfaceOrientationPortraitUpsideDown
++      : UIInterfaceOrientationPortrait;
++  }
++
++  return FBResponseWithObject(@{
++    @"revision": @"overlay-input-v6",
++    @"capabilities": @[@"globalTap", @"globalDrag", @"globalOrientation", @"overlayScreen", @"overlayOrientation"],
++    @"orientation": [self luminaOrientationName],
++    @"screen": @{
++      @"screenSize": @{@"width": @(screenSize.width), @"height": @(screenSize.height)},
++      @"statusBarSize": @{@"width": @0, @"height": @0},
++      @"scale": @([FBScreen scale]),
++    },
++  });
++}
++
+++ (NSString *)luminaOrientationName
++{
++  switch (FBLuminaInterfaceOrientation) {
++    case UIInterfaceOrientationPortrait:
++      return @"PORTRAIT";
++    case UIInterfaceOrientationPortraitUpsideDown:
++      return @"UIA_DEVICE_ORIENTATION_PORTRAIT_UPSIDEDOWN";
++    case UIInterfaceOrientationLandscapeRight:
++      return @"LANDSCAPE";
++    case UIInterfaceOrientationLandscapeLeft:
++      return @"UIA_DEVICE_ORIENTATION_LANDSCAPERIGHT";
++    case UIInterfaceOrientationUnknown:
++      return @"UNKNOWN";
++    default:
++      return @"UNKNOWN";
++  }
++}
++
+++ (id<FBResponsePayload>)handleLuminaTap:(FBRouteRequest *)request
++{
++  NSNumber *x = request.arguments[@"x"];
++  NSNumber *y = request.arguments[@"y"];
++  if (nil == x || nil == y || !isfinite(x.doubleValue) || !isfinite(y.doubleValue)) {
++    return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"Finite x and y coordinates are required"
++                                                                       traceback:nil]);
++  }
++
++  XCSynthesizedEventRecord *event = [[XCSynthesizedEventRecord alloc]
++                                     initWithName:@"Lumina tap"
++                                     interfaceOrientation:[self luminaInterfaceOrientation]];
++  XCPointerEventPath *path = [[XCPointerEventPath alloc]
++                              initForTouchAtPoint:CGPointMake(x.doubleValue, y.doubleValue)
++                              offset:0.0];
++  [path liftUpAtOffset:0.05];
++  [event addPointerEventPath:path];
++  NSError *error;
++  return [FBXCTestDaemonsProxy synthesizeEventWithRecord:event error:&error]
++    ? FBResponseWithOK()
++    : FBResponseWithUnknownError(error);
++}
++
+++ (id<FBResponsePayload>)handleLuminaDrag:(FBRouteRequest *)request
++{
++  NSNumber *fromX = request.arguments[@"fromX"];
++  NSNumber *fromY = request.arguments[@"fromY"];
++  NSNumber *toX = request.arguments[@"toX"];
++  NSNumber *toY = request.arguments[@"toY"];
++  NSNumber *requestedDuration = request.arguments[@"duration"];
++  NSArray *coordinates = @[fromX ?: NSNull.null, fromY ?: NSNull.null,
++                           toX ?: NSNull.null, toY ?: NSNull.null];
++  for (id coordinate in coordinates) {
++    if (![coordinate isKindOfClass:NSNumber.class] || !isfinite([coordinate doubleValue])) {
++      return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"Finite drag coordinates are required"
++                                                                         traceback:nil]);
++    }
++  }
++
++  NSTimeInterval duration = MAX(0.05, requestedDuration.doubleValue);
++  XCSynthesizedEventRecord *event = [[XCSynthesizedEventRecord alloc]
++                                     initWithName:@"Lumina drag"
++                                     interfaceOrientation:[self luminaInterfaceOrientation]];
++  XCPointerEventPath *path = [[XCPointerEventPath alloc]
++                              initForTouchAtPoint:CGPointMake(fromX.doubleValue, fromY.doubleValue)
++                              offset:0.0];
++  [path moveToPoint:CGPointMake(toX.doubleValue, toY.doubleValue) atOffset:duration];
++  [path liftUpAtOffset:duration + 0.05];
++  [event addPointerEventPath:path];
++  NSError *error;
++  return [FBXCTestDaemonsProxy synthesizeEventWithRecord:event error:&error]
++    ? FBResponseWithOK()
++    : FBResponseWithUnknownError(error);
++}
++
+++ (id<FBResponsePayload>)handleLuminaOrientation:(FBRouteRequest *)request
++{
++  NSString *requestedOrientation = [request.arguments[@"orientation"] uppercaseString];
++  NSDictionary<NSString *, NSNumber *> *orientations = @{
++    @"PORTRAIT": @(UIDeviceOrientationPortrait),
++    @"UIA_DEVICE_ORIENTATION_PORTRAIT_UPSIDEDOWN": @(UIDeviceOrientationPortraitUpsideDown),
++    @"LANDSCAPE": @(UIDeviceOrientationLandscapeLeft),
++    @"UIA_DEVICE_ORIENTATION_LANDSCAPERIGHT": @(UIDeviceOrientationLandscapeRight),
++  };
++  NSNumber *orientation = orientations[requestedOrientation];
++  if (nil == orientation) {
++    return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"A supported iPhone orientation is required"
++                                                                       traceback:nil]);
++  }
++
++  // Avoid resolving XCUIApplication here. During AirPlay, WebDriverAgent may
++  // identify local.pid.0 as active while its device daemon remains healthy.
++  XCUIDevice.sharedDevice.orientation = (UIDeviceOrientation)orientation.integerValue;
++  return FBResponseWithOK();
++}
++
+++ (UIInterfaceOrientation)luminaInterfaceOrientation
++{
++  return FBLuminaInterfaceOrientation;
++}
++
+ + (id<FBResponsePayload>)handleDeactivateAppCommand:(FBRouteRequest *)request
+ {
+   NSNumber *requestedDuration = request.arguments[@"duration"];

@@ -19,11 +19,18 @@ nonisolated struct SecurityCodeSignatureVerifier: CodeSignatureVerifying {
               let values = information as? [CFString: Any],
               let identifier = values[kSecCodeInfoIdentifier] as? String,
               let teamIdentifier = values[kSecCodeInfoTeamIdentifier] as? String,
+              let uniqueCode = values[kSecCodeInfoUnique] as? Data,
+              !uniqueCode.isEmpty,
               teamIdentifier == expectedTeamIdentifier,
               identifier == expectedBundleIdentifier else {
             throw RunnerBuildError.invalidSignature(Self.issue("The runner signature does not match the selected team or bundle"))
         }
-        return RunnerCodeSignature(identifier: identifier, teamIdentifier: teamIdentifier)
+        let codeDirectoryHash = uniqueCode.map { String(format: "%02x", $0) }.joined()
+        return RunnerCodeSignature(
+            identifier: identifier,
+            teamIdentifier: teamIdentifier,
+            codeDirectoryHash: codeDirectoryHash
+        )
     }
 
     private static func issue(_ title: String) -> RunnerBuildIssue {

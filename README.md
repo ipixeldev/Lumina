@@ -18,12 +18,12 @@
 
 ## What Lumina is
 
-Lumina is intended to become a native macOS utility for a user to view and control their own non-jailbroken iPhone without a cloud backend. The design uses supported or demonstrably working Apple developer mechanisms and does not pretend that an ordinary iOS application can control other applications.
+Lumina is a native macOS utility for viewing and controlling a user-owned, non-jailbroken iPhone without a cloud backend. It combines Apple's local developer tooling with two interchangeable video sources and keeps all core traffic between the Mac and iPhone.
 
 Lumina keeps video and input independent:
 
 - **Visual channel:** choose the direct WebDriverAgent MJPEG stream or experimental AirPlay video captured from the macOS system receiver with ScreenCaptureKit. Direct video has bounded screenshot polling as a compatibility fallback.
-- **Control channel:** sends taps, drags, swipes, typing, and supported device actions through a signed XCUITest/WebDriverAgent runner.
+- **Control channel:** sends taps, drags, swipes, and supported device actions through a signed XCUITest/WebDriverAgent runner. This channel remains independent of the selected video source.
 
 ```mermaid
 flowchart LR
@@ -76,8 +76,9 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Trust, unlock, and Developer Mode guidance that preserves required on-device confirmations
 - Appium WebDriverAgent v15.1.6 pinned as a Git submodule at commit `5f8280e761dc0b5b9b28368e63a8f0cc8d868346`
 - Pinned WebDriverAgent source packaged inside the app so runner builds do not require Documents-folder access
+- Reviewed Lumina input-event extension applied to a cached copy of the pinned source, leaving the upstream submodule unchanged
 - Stable per-install runner bundle identifiers backed by a random Keychain identity
-- Automatic selection of a usable Apple Development team without hard-coded signing data
+- Stable Apple Development signing through an ignored, per-contributor configuration file; no personal Team ID is committed
 - Cancellable `xcodebuild build-for-testing` with result bundles and actionable failure classification
 - Local Security.framework verification of the produced runner signature, team, and identifier
 - Structured runner installation through Apple's `devicectl`
@@ -85,13 +86,13 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Local WebDriverAgent endpoint discovery through trusted CoreDevice hostnames and WDA launch output
 - Typed `/status` validation that rejects a stale or mismatched runner
 - Typed WebDriverAgent session creation, response validation, and best-effort cleanup
-- Automatic reuse of a locally cached runner after signature, team, and bundle verification
-- Persistent installed-runner detection that skips redundant installation on a previously prepared iPhone
+- Automatic reuse of a locally cached runner after patch revision, signature, team, and bundle verification
+- Revision-aware installed-runner tracking that skips redundant installation and upgrades the runner once when Lumina's reviewed extension changes
 - Automatic build, install when needed, launch, session creation, and device-window opening after the requirements check
 - Dedicated local MJPEG stream with newest-frame buffering, selectable quality profiles, and screenshot fallback
 - Latest-frame backpressure and off-main-thread JPEG decoding so slow rendering drops stale frames instead of freezing the app
-- Experimental AirPlay visual source using macOS AirPlay Receiver plus a Lumina-owned ScreenCaptureKit window chooser, with no WDA screenshot or MJPEG traffic in AirPlay mode
-- Public Bonjour preflight that verifies this Mac is actually advertising `_airplay._tcp` before Lumina starts the AirPlay workflow
+- Experimental AirPlay visual source using macOS AirPlay Receiver plus a Lumina-owned ScreenCaptureKit window chooser, with no WDA screenshot polling or MJPEG video traffic in AirPlay mode
+- Public Bonjour diagnostics that report whether this Mac is advertising `_airplay._tcp` without blocking a working system receiver
 - AirPlay capture readiness gated on the first valid video frame rather than stream creation alone
 - Deterministic setup-first launch; the device window is not restored without a live control session
 - Separate iPhone window that follows the video aspect ratio without side gutters
@@ -100,9 +101,10 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 - Title-bar controls for Wake or Unlock, Home, iPhone rotation, and Volume Up
 - Compact Simulator-style title bar with primary controls and measured FPS
 - Three-dot menu for secondary controls, direct-stream quality, refresh, and Privacy Blur
-- Best-effort iPhone orientation requests through the XCTest control channel, with video following the orientation reported by the device
+- Overlay-safe iPhone orientation requests through the XCTest control channel, with the Lumina window following the confirmed device orientation
 - One-click runner reconnection without rebuilding or reinstalling after a dropped session
 - Automatic reconnection when a usable paired Wi-Fi developer tunnel returns
+- Runtime Direct/AirPlay switching that restarts only the visual channel while preserving a healthy XCTest control session
 - Paired Wi-Fi device discovery and launch support through Apple's CoreDevice/Xcode transport
 - Menu-bar presence while connected so the setup window can stay out of the way
 - Bundled WebDriverAgent BSD license and native acknowledgements screen
@@ -119,10 +121,10 @@ Video frames, commands, device details, and diagnostics are designed to remain o
 To build the current macOS foundation:
 
 - macOS 14 or newer
-- Xcode with the macOS SDK installed
+- Xcode 26.1.1 (the currently tested version) with the macOS and matching iOS platform installed; older Xcode versions are currently unverified
 - Git
 
-Physical-device discovery and future automation require:
+Physical-device control requires:
 
 - A personally owned, compatible iPhone
 - Initial USB connection and trust pairing
@@ -136,12 +138,11 @@ Lumina will never bypass passcodes, Face ID, Touch ID, Activation Lock, device t
 
 ## Install from source
 
-There is no downloadable release build yet. Build the development version from Xcode:
+There is no downloadable release build yet. Clone the repository with its pinned WebDriverAgent submodule:
 
 ```bash
 git clone --recurse-submodules https://github.com/ipixeldev/Lumina.git
 cd Lumina
-open Lumina.xcodeproj
 ```
 
 If the repository was cloned previously, initialize the pinned WebDriverAgent source:
@@ -150,14 +151,27 @@ If the repository was cloned previously, initialize the pinned WebDriverAgent so
 git submodule update --init --recursive
 ```
 
-In Xcode:
+Create a local signing configuration before opening the project:
 
-1. Select the `Lumina` project.
-2. Select the `Lumina` application target.
-3. Open **Signing & Capabilities**.
-4. Select your own development team if Xcode requires signing.
-5. Choose **My Mac** as the run destination.
-6. Press **Run** or use `⌘R`.
+```bash
+cp Configuration/LocalSigning.xcconfig.example Configuration/LocalSigning.xcconfig
+```
+
+Edit `Configuration/LocalSigning.xcconfig` and replace `YOUR_TEAM_ID` with the 10-character Team ID from your Apple Developer Membership details, or the Apple Development certificate's **Organizational Unit (OU)** in Keychain Access. Do not copy the parenthesized suffix from the certificate's display name; it can be a different identifier.
+
+```xcconfig
+LUMINA_DEVELOPMENT_TEAM = ABCDE12345
+```
+
+The local file is ignored by Git. `Configuration/Signing.xcconfig` keeps Debug builds signed as **Apple Development**, which gives Lumina a stable code-signing requirement across rebuilds. This is important for macOS privacy permissions: Apple confirms that ad-hoc signatures can make every build look like a different app to Screen Recording authorization ([Apple Developer Forums](https://developer.apple.com/forums/thread/819406), [TN3127](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements)).
+
+Then open the project:
+
+```bash
+open Lumina.xcodeproj
+```
+
+In Xcode, choose **My Mac** as the run destination and press **Run** or `⌘R`. The project reads the signing team from the local configuration; contributors do not need to edit the shared project file.
 
 The Xcode project, target, scheme, product, executable, bundle display name, and Swift module are all named `Lumina`.
 
@@ -170,9 +184,9 @@ The Xcode project, target, scheme, product, executable, bundle display name, and
 3. In Xcode, open **Settings → Accounts** and sign in with the Apple ID associated with your development team.
 4. Open Lumina. Setup Assistant appears first on every new app launch. Select either the **Direct** or **AirPlay** card for this run. Direct waits for **Check this Mac**; AirPlay verifies the receiver and begins the same checks automatically so its separate control channel is ready before mirroring.
 5. Confirm that Lumina reports the iPhone as paired, unlocked, and ready, and that Apple Development signing is ready.
-6. Lumina automatically verifies and reuses a cached signed runner when possible. On the first run—or after signing/source changes—it builds a fresh runner and Xcode may contact Apple to create or refresh the provisioning profile.
-7. Lumina checks whether that exact runner is already installed. It installs only when needed, then starts XCTest and creates the automation session.
-8. The iPhone screen opens automatically in a separate, device-sized window, while the setup window closes and Lumina remains available from the macOS menu bar. Click to tap and drag to swipe.
+6. Lumina verifies and reuses a cached signed runner when its source-patch revision, team, signature, and bundle identifier still match. On the first run—or after one of those inputs changes—it builds a fresh runner and Xcode may contact Apple to create or refresh the provisioning profile.
+7. Lumina installs that runner only when the matching revision has not already been prepared on the iPhone. Every app run starts a new XCTest session, but it does not rebuild or explicitly reinstall an unchanged runner.
+8. The iPhone screen opens automatically in a separate, device-sized window, while the setup window hides and Lumina remains available from the macOS menu bar. Click to tap and drag to swipe.
 9. The compact title bar keeps Wake or Unlock, Home, Rotate iPhone, Volume Up, and measured FPS visible. Use the three-dot menu for reconnect, secondary actions, Privacy Blur, and direct-stream quality.
 
 ### Video source and quality
@@ -180,7 +194,9 @@ The Xcode project, target, scheme, product, executable, bundle display name, and
 Lumina offers two visual sources while keeping the same local XCUITest control channel:
 
 - **Direct** uses WebDriverAgent's MJPEG server and works over USB or the trusted Xcode Wi-Fi tunnel.
-- **AirPlay** is experimental. The iPhone mirrors to macOS's built-in full-screen AirPlay Receiver. Lumina captures that system window, crops it to the iPhone viewport, returns to the normal desktop Space, and opens its own interactive device-sized window. WebDriverAgent remains connected strictly for mouse and toolbar controls; Lumina does not request its screenshot or start its MJPEG server in this mode.
+- **AirPlay** is experimental. The iPhone mirrors to macOS's built-in full-screen AirPlay Receiver. Lumina captures that system window, crops it to the iPhone viewport, returns to the normal desktop Space, and opens its own interactive device-sized window. WebDriverAgent remains connected for mouse, toolbar, health, and orientation metadata; Lumina does not poll WDA screenshots or start its MJPEG server for AirPlay video.
+
+AirPlay itself is a display protocol. Apple describes AirPlay as a way to view—not interact with—an iPhone screen; Apple's separate iPhone Mirroring feature provides native interaction ([Apple Support](https://support.apple.com/en-us/120421)). Lumina therefore never sends clicks to the native full-screen receiver. It maps clicks and drags in Lumina's device window to the independent XCTest runner. Only the Lumina window is interactive.
 
 Direct video includes three presets:
 
@@ -190,7 +206,7 @@ Direct video includes three presets:
 
 These values are targets, not guaranteed delivery rates. Higher resolution increases encoding, transport, and decoding load; the FPS shown in Lumina is the measured frame rate.
 
-Lumina does not explicitly reinstall an unchanged runner after the first successful setup. Starting WebDriverAgent still requires a new XCTest session on every app run, and Xcode may validate or synchronize its test bundle as part of `test-without-building`; that Apple-managed launch step can resemble an installation even when Lumina skipped its `devicectl install` step.
+Lumina caches both the prepared runner source and the signed build by a reviewed extension revision. It also records the installed revision per device and runner identifier. A new revision is built and installed once; subsequent launches reuse it. Starting WebDriverAgent still requires a new XCTest session on every app run, and Xcode may validate or synchronize its test bundle as part of `test-without-building`. That Apple-managed launch step can resemble an installation even when Lumina skipped its explicit `devicectl install` step.
 
 To use AirPlay video:
 
@@ -198,16 +214,34 @@ To use AirPlay video:
 2. Keep the Mac and iPhone on the same Wi-Fi network.
 3. Select the **AirPlay** card in Lumina. Lumina performs a local Bonjour preflight, displays the exact Mac receiver name, and prepares the XCTest control channel first. Keep the iPhone unlocked during this step.
 4. Wait until the AirPlay card reports **Control ready** or **Watching for iPhone**.
-5. On the iPhone, open Control Center, choose **Screen Mirroring**, and select that Mac name. Apple's full-screen receiver is the system video source; Lumina places its interactive device window above it.
-6. Lumina automatically finds the mirrored system window, captures and center-crops the phone image, then shows its floating device-sized controls in the same Space. Use **Choose Window Manually** only if automatic detection times out.
-7. Approve Screen Recording permission if macOS requests it. macOS may require Lumina to be restarted after the first approval.
+5. On the iPhone, open Control Center, choose **Screen Mirroring**, and select that Mac name. The Mac and iPhone must be on the same Wi-Fi network, as required by Apple's [AirPlay setup](https://support.apple.com/en-us/102661).
+6. macOS initially opens its native receiver full-screen. Lumina detects and captures that window, returns to the normal desktop Space after the first usable frame, and presents the video in its own device-sized window. Use **Choose Mirrored Window…** only if automatic detection times out.
+7. If Screen Recording has not been granted, use Lumina's explicit **Allow Screen Recording…** button and complete the one-time steps below.
 8. Setup Assistant hides only after XCTest control and a real AirPlay frame are both active. Clicks, drags, Home, rotation, and volume actions are then sent through WebDriverAgent—not to Apple's view-only AirPlay surface.
 
-AirPlay mode does not turn Lumina itself into an AirPlay receiver. Lumina deliberately uses the macOS system receiver and public ScreenCaptureKit APIs, while the signed local XCTest runner remains a separate control channel.
+AirPlay mode does not turn Lumina itself into an AirPlay receiver. Lumina deliberately uses the macOS system receiver and ScreenCaptureKit, while the signed local XCTest runner remains a separate control channel.
 
-For safety, Lumina never activates ScreenCaptureKit's process-global system picker. It lists on-screen windows locally, excludes its own windows, resolves the selected `SCWindow`, and owns the resulting `SCStream`. This prevents recursive capture and avoids interfering with macOS Control Center's AirPlay Receiver.
+#### One-time Screen Recording permission
+
+AirPlay video requires Screen Recording permission because Lumina copies the system receiver's frames into its own window. Lumina checks permission silently during automatic discovery and requests it only after the user presses **Allow Screen Recording…**.
+
+1. Press **Allow Screen Recording…** in Lumina.
+2. Enable **Lumina** under **System Settings → Privacy & Security → Screen & System Audio Recording**.
+3. Fully quit Lumina with `⌘Q`, then run it again. Apple's ScreenCaptureKit sample notes that capture becomes available only after restarting the app following the first grant ([Apple Developer Documentation](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos)).
+
+If an older ad-hoc-signed Lumina build was previously authorized, install the stable local signing configuration above, run the newly signed build, and grant access once more. If Lumina is already listed but preflight still fails, turn its switch off and on, quit Lumina completely, and reopen it. With the same bundle identifier and Apple Development identity, normal rebuilds should retain the permission.
+
+For safety, Lumina never activates ScreenCaptureKit's process-global system picker. It lists shareable windows locally—including the inactive receiver Space for recovery—excludes its own windows, resolves the selected `SCWindow`, and owns the resulting `SCStream`. This prevents recursive capture and avoids interfering with macOS Control Center's AirPlay Receiver.
 
 If Lumina reports that the receiver is not advertised, toggle **AirPlay Receiver** off and on, check VPN or network-isolation settings, and recheck. Lumina uses only public discovery APIs and cannot enable or repair the system receiver through private preferences.
+
+### Switch video source or reconnect
+
+- Before connecting, select **Direct** or **AirPlay** from the two cards in Setup Assistant.
+- While connected, open the device window's three-dot menu and choose the other source under **Video**. Lumina stops the current visual channel and starts the selected one without rebuilding, reinstalling, or replacing a healthy XCTest session.
+- If AirPlay mirroring stops, restart Screen Mirroring from the iPhone; Lumina watches for the receiver window to return. **Choose Mirrored Window…** is available as a manual fallback.
+- If the XCTest control channel drops, use the **Reconnect** banner or **Reconnect iPhone Control** in the three-dot menu. Reconnection reuses the cached runner.
+- After a full disconnect, return to Setup Assistant or use the menu-bar item to select either source again. Source cards are disabled only while a check, build, install, or connection transition is actively running.
 
 ### Connect over Wi-Fi
 
@@ -224,7 +258,7 @@ Lumina reports setup failures with a diagnostic code and a specific recovery act
 
 ### Command-line build
 
-For a local unsigned verification build:
+For a local unsigned compile-only verification build:
 
 ```bash
 xcodebuild \
@@ -242,6 +276,8 @@ The app will be written to:
 ```text
 /tmp/LuminaDerivedData/Build/Products/Debug/Lumina.app
 ```
+
+An unsigned build is not suitable for AirPlay capture or persistent macOS privacy authorization. Use the stable Apple Development configuration above for normal app and physical-device testing.
 
 ## Run the tests
 
@@ -294,11 +330,11 @@ Additional transport, mirroring, input, and security folders will be introduced 
 - Typed text and clipboard content must never be logged.
 - Device identifiers, user paths, certificates, and exported diagnostics must be redacted.
 - Helpers must be versioned, signed, licensed, integrity checked, and narrowly scoped.
-- No jailbreak, private touch-injection API, passcode bypass, or hidden surveillance behavior.
+- No jailbreak, passcode bypass, hidden surveillance behavior, or device-side service outside the explicitly signed XCTest runner.
 
 ## Platform limitations
 
-The finished product will still be constrained by Apple's developer automation system:
+Lumina is constrained by Apple's developer automation and capture systems:
 
 - Developer Mode and an Apple Development certificate are required.
 - Initial USB pairing and on-device trust confirmation are normally required.
@@ -307,9 +343,11 @@ The finished product will still be constrained by Apple's developer automation s
 - Free development signing typically needs more frequent renewal.
 - Some secure, banking, authentication, DRM, or system interfaces may resist automation or capture.
 - Direct MJPEG performance depends on device load, the selected quality preset, and transport quality. A 60 FPS target does not guarantee 60 delivered frames.
-- **Rotate iPhone** sends a real orientation request through XCTest. SpringBoard and portrait-only apps can reject it, so Lumina changes its layout only after the device reports the new orientation.
+- **Rotate iPhone** sends a real orientation request through XCTest, then resizes Lumina only after reading the rendered iPhone screen geometry. Interfaces that do not support the requested orientation remain unchanged.
 - AirPlay video requires the Mac's system AirPlay Receiver, the same Wi-Fi network, Local Network and Screen Recording permissions, and a shareable mirrored system window.
+- macOS owns the native AirPlay Receiver and may briefly open a full-screen Space before Lumina can copy the first frame into its device-sized window. Clicking the native receiver never sends input.
 - ScreenCaptureKit can capture only content macOS exposes as shareable. Protected or DRM video may appear blank.
+- AirPlay controls require a healthy, signed XCTest runner in addition to the video connection. AirPlay alone cannot provide interaction.
 - **Wake or Unlock** can wake an already trusted device but cannot enter a passcode or bypass Face ID/Touch ID.
 - Lumina cannot bypass passcodes, biometrics, Activation Lock, or physical confirmations.
 - Compatibility will vary across Xcode, iOS, device models, and the selected WebDriverAgent version.
@@ -318,7 +356,9 @@ The finished product will still be constrained by Apple's developer automation s
 
 Lumina uses [Appium WebDriverAgent](https://github.com/appium/WebDriverAgent), version 15.1.6 pinned to commit `5f8280e761dc0b5b9b28368e63a8f0cc8d868346`. The upstream repository is actively maintained and its `LICENSE` identifies WebDriverAgent as BSD-licensed. Lumina preserves that license text in the application bundle and displays it in the Acknowledgements screen.
 
-The pinned source defines the route foundation used by later automation work, including status and health checks, session creation/deletion, application actions, orientation, screenshots, W3C touch actions, and coordinate gestures. Lumina does not assume route compatibility with a different WebDriverAgent revision.
+Lumina applies the reviewed patch at `Lumina/Resources/WebDriverAgent-Lumina.patch` to a private cached copy of that exact source revision. The patch adds narrowly scoped global coordinate tap, drag, and orientation routes using XCTest's device event APIs so controls continue to work while the system AirPlay overlay is visible. The pinned submodule is validated first and remains unmodified. A patch-revision marker invalidates the prepared source, signed build, and installed-runner cache together when this extension changes.
+
+Lumina does not assume route compatibility with a different WebDriverAgent revision. No third-party AirPlay receiver is bundled; AirPlay video comes from macOS.
 
 Lumina is not affiliated with or endorsed by Appium, Facebook, or Apple.
 
@@ -329,7 +369,7 @@ Contributions are welcome.
 1. Select a focused issue that can be implemented and verified independently.
 2. Fork the repository and create a focused branch.
 3. Keep visual and control channels separate.
-4. Do not add fake production implementations, private Apple APIs, hard-coded signing data, or unsupported capability claims.
+4. Do not add fake production implementations, hard-coded signing data, unsupported capability claims, or private APIs to the Lumina macOS app. Development-only XCTest/WebDriverAgent internals must stay isolated in the reviewed runner patch and be documented explicitly.
 5. Add tests appropriate to the change.
 6. Run the relevant build and test commands.
 7. Open a pull request describing what was verified in mocks, simulators, and physical devices.

@@ -52,7 +52,8 @@ final class DependencyContainer {
         let runnerBuilder = RunnerBuildService(
             processRunner: processRunner,
             sourceValidator: WebDriverAgentSourceValidator(processRunner: processRunner),
-            signatureVerifier: SecurityCodeSignatureVerifier()
+            signatureVerifier: SecurityCodeSignatureVerifier(),
+            patchURL: LuminaWebDriverAgentPatch.url()
         )
         let runnerSetupManager = RunnerSetupService(
             processRunner: processRunner,
@@ -83,6 +84,7 @@ final class DependencyContainer {
             }
         }
 
+#if DEBUG
         let sourceFileURL = URL(fileURLWithPath: #filePath)
         let repositoryURL = sourceFileURL
             .deletingLastPathComponent()
@@ -91,5 +93,8 @@ final class DependencyContainer {
         let candidate = repositoryURL.appendingPathComponent("Vendor/WebDriverAgent", isDirectory: true)
         let project = candidate.appendingPathComponent("WebDriverAgent.xcodeproj", isDirectory: true)
         return FileManager.default.fileExists(atPath: project.path) ? candidate : nil
+#else
+        return nil
+#endif
     }
 }

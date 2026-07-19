@@ -1,0 +1,5 @@
+// Copy this file to LocalSigning.xcconfig and replace the placeholder with
+// the 10-character Team ID from Apple Developer Membership details or the
+// certificate's Organizational Unit (OU). Do not use the certificate name suffix.
+
+LUMINA_DEVELOPMENT_TEAM = YOUR_TEAM_ID
