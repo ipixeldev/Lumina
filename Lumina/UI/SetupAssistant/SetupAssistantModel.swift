@@ -139,8 +139,10 @@ final class SetupAssistantModel {
         airPlayReceiverReport?.macDisplayName ?? Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     }
     var isSelectedVisualSourceReadyToConnect: Bool {
-        guard hasSelectedVisualSource else { return false }
-        return visualSource == .direct || airPlayReceiverReport?.isScreenMirroringAdvertised == true
+        // Bonjour discovery is a useful AirPlay diagnostic, but it is not a
+        // prerequisite for XCTest control. Some macOS releases omit or delay
+        // the receiver advertisement even while system mirroring works.
+        hasSelectedVisualSource
     }
     var hasReadyDevice: Bool { selectedBuildDevice != nil }
     var canSelectVisualSource: Bool {
@@ -182,13 +184,13 @@ final class SetupAssistantModel {
                 airPlayCheckID = nil
                 if report.isScreenMirroringAdvertised {
                     logger.info("macOS AirPlay Receiver is discoverable", category: .mirroring)
-                    if stateMachine.state == .appStarting || stateMachine.state == .stopped {
-                        checkThisMac()
-                    }
-                    beginAutomaticSetupIfNeeded()
                 } else {
                     logger.error("macOS AirPlay Receiver is not advertising screen mirroring", category: .mirroring)
                 }
+                if stateMachine.state == .appStarting || stateMachine.state == .stopped {
+                    checkThisMac()
+                }
+                beginAutomaticSetupIfNeeded()
             } catch is CancellationError {
                 guard airPlayCheckID == checkID else { return }
                 airPlayCheckTask = nil
@@ -199,6 +201,9 @@ final class SetupAssistantModel {
                 airPlayCheckID = nil
                 airPlayDiscoveryError = "Lumina could not check AirPlay discovery: \(error.localizedDescription)"
                 logger.error("AirPlay Receiver discovery check failed", category: .mirroring)
+                if stateMachine.state == .appStarting || stateMachine.state == .stopped {
+                    checkThisMac()
+                }
             }
         }
     }
@@ -273,7 +278,10 @@ final class SetupAssistantModel {
         runnerBuildIssue = nil
         runnerBuildResult = nil
         isCheckingRunnerCache = reuseCache
-        guard transitionToBuilding() else { return }
+        guard transitionToBuilding() else {
+            if continueAutomatically { automaticStartAttemptedDeviceID = nil }
+            return
+        }
         logger.info(reuseCache ? "Looking for a reusable signed runner" : "WebDriverAgent build started", category: .build)
 
         runnerBuildTask = Task { [weak self] in
@@ -297,17 +305,20 @@ final class SetupAssistantModel {
             } catch is CancellationError {
                 runnerBuildTask = nil
                 isCheckingRunnerCache = false
+                if continueAutomatically { automaticStartAttemptedDeviceID = nil }
                 transitionIfPossible(to: .runnerNotInstalled, category: .build)
                 logger.info("WebDriverAgent build cancelled", category: .build)
             } catch let error as RunnerBuildError {
                 runnerBuildTask = nil
                 isCheckingRunnerCache = false
+                if continueAutomatically { automaticStartAttemptedDeviceID = nil }
                 runnerBuildIssue = error.issue
                 transitionIfPossible(to: .runnerBuildFailed(message: error.issue.explanation), category: .build)
                 logger.error("WebDriverAgent build failed with \(error.issue.code)", category: .build)
             } catch {
                 runnerBuildTask = nil
                 isCheckingRunnerCache = false
+                if continueAutomatically { automaticStartAttemptedDeviceID = nil }
                 let issue = BuildLogParser.issue(for: error.localizedDescription)
                 runnerBuildIssue = issue
                 transitionIfPossible(to: .runnerBuildFailed(message: issue.explanation), category: .build)
@@ -348,6 +359,7 @@ final class SetupAssistantModel {
                 if !installed {
                     guard transitionIfPossible(to: .runnerInstalling(progress: nil), category: .build) else {
                         runnerSetupTask = nil
+                        automaticStartAttemptedDeviceID = nil
                         return
                     }
                     logger.info("WebDriverAgent installation started", category: .build)
@@ -360,6 +372,7 @@ final class SetupAssistantModel {
                 }
                 guard transitionIfPossible(to: .runnerLaunching, category: .build) else {
                     runnerSetupTask = nil
+                    automaticStartAttemptedDeviceID = nil
                     runnerSetupManager.stop()
                     return
                 }
@@ -382,17 +395,20 @@ final class SetupAssistantModel {
                 runnerSetupTask = nil
             } catch is CancellationError {
                 runnerSetupTask = nil
+                automaticStartAttemptedDeviceID = nil
                 await automationWorkspace.disconnect()
                 runnerSetupManager.stop()
                 transitionIfPossible(to: .runnerBuilt, category: .build)
                 logger.info("Runner setup cancelled", category: .build)
             } catch let error as RunnerSetupError {
                 runnerSetupTask = nil
+                automaticStartAttemptedDeviceID = nil
                 runnerSetupIssue = error.issue
                 transitionIfPossible(to: .runnerInstallFailed(message: error.issue.explanation), category: .build)
                 logger.error("Runner setup failed with \(error.issue.code)", category: .build)
             } catch {
                 runnerSetupTask = nil
+                automaticStartAttemptedDeviceID = nil
                 let issue = RunnerSetupLogParser.launchIssue(for: error.localizedDescription)
                 runnerSetupIssue = issue
                 transitionIfPossible(to: .runnerInstallFailed(message: issue.explanation), category: .build)
@@ -479,6 +495,7 @@ final class SetupAssistantModel {
         runnerSetupTask = nil
         reconnectTask?.cancel()
         reconnectTask = nil
+        automaticStartAttemptedDeviceID = nil
         guard transitionIfPossible(to: .stopping, category: .build) else { return }
         Task { [weak self] in
             guard let self else { return }
@@ -495,7 +512,6 @@ final class SetupAssistantModel {
                 $0.pairingState == .paired &&
                 $0.developerModeState == .enabled &&
                 $0.lockState != .locked &&
-                $0.developerServicesAvailable &&
                 ($0.connectionTransport == .usb ||
                     ($0.connectionTransport == .wifi &&
                         $0.isAvailableOverNetwork &&
@@ -538,6 +554,10 @@ final class SetupAssistantModel {
         refreshRunnerConfigurationForCurrentDevice()
 
         if stateMachine.state == .connected || stateMachine.state == .startingMirror {
+            // Once WebDriverAgent has answered, its health checks own control
+            // readiness. A transient empty devicectl snapshot must not discard
+            // a healthy session or block the first AirPlay frame.
+            if automationWorkspace.isControlReady { return }
             if selectedBuildDevice != nil { return }
             transitionIfPossible(to: .temporarilyDisconnected, category: .device)
             return
@@ -547,6 +567,14 @@ final class SetupAssistantModel {
             reconnectRunner()
             return
         }
+
+        // Keep discovery active for reconnects without letting a polling
+        // update overwrite build, launch, or automation states.
+        let discoveryStates: [ApplicationState] = [
+            .noDevice, .deviceConnectedUSB, .deviceConnectedWiFi,
+            .deviceNeedsTrust, .developerModeDisabled, .deviceLocked
+        ]
+        guard discoveryStates.contains(stateMachine.state) else { return }
 
         let nextState: ApplicationState
         if let device = devices.first(where: { $0.connectionTransport == .usb }) ?? devices.first {
@@ -580,13 +608,33 @@ final class SetupAssistantModel {
     }
 
     private func beginAutomaticSetupIfNeeded() {
-        guard ProcessInfo.processInfo.environment["LUMINA_DISABLE_AUTOSTART"] != "1",
-              isSelectedVisualSourceReadyToConnect,
-              let device = selectedBuildDevice,
-              automaticStartAttemptedDeviceID != device.id,
-              runnerBuildTask == nil,
-              runnerSetupTask == nil,
-              stateMachine.state == .deviceConnectedUSB || stateMachine.state == .deviceConnectedWiFi else { return }
+        guard ProcessInfo.processInfo.environment["LUMINA_DISABLE_AUTOSTART"] != "1" else { return }
+        guard isSelectedVisualSourceReadyToConnect else {
+            logger.debug("Automatic runner start is waiting for a video method", category: .automation)
+            return
+        }
+        guard let device = selectedBuildDevice else {
+            logger.debug("Automatic runner start is waiting for a ready developer device", category: .automation)
+            return
+        }
+        guard automaticStartAttemptedDeviceID != device.id else {
+            logger.debug("Automatic runner start already ran for the current iPhone", category: .automation)
+            return
+        }
+        guard runnerBuildTask == nil, runnerSetupTask == nil else {
+            logger.debug("Automatic runner setup is already in progress", category: .automation)
+            return
+        }
+        guard stateMachine.state == .deviceConnectedUSB || stateMachine.state == .deviceConnectedWiFi else {
+            logger.debug("Automatic runner start is waiting for a stable device state", category: .automation)
+            return
+        }
+        guard runnerBuildConfiguration() != nil else {
+            // Do not consume the one automatic attempt while an environment,
+            // signing, or bundled-source prerequisite is still arriving.
+            logger.debug("Automatic runner start is waiting for complete build configuration", category: .automation)
+            return
+        }
         automaticStartAttemptedDeviceID = device.id
         startRunnerBuild(reuseCache: true, continueAutomatically: true)
     }
@@ -608,8 +656,17 @@ final class SetupAssistantModel {
     }
 
     private func visualChannelDidStart(_ source: VisualSource) {
-        guard source == visualSource, stateMachine.state == .startingMirror else { return }
-        transitionIfPossible(to: .connected, category: .mirroring)
+        guard source == visualSource else { return }
+        switch stateMachine.state {
+        case .startingMirror:
+            transitionIfPossible(to: .connected, category: .mirroring)
+        case .temporarilyDisconnected where automationWorkspace.isControlReady:
+            transitionIfPossible(to: .connected, category: .mirroring)
+        case .connected:
+            break
+        default:
+            return
+        }
         logger.info("Selected visual channel is active", category: .mirroring)
     }
 

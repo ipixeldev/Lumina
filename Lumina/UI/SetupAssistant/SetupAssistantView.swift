@@ -247,7 +247,7 @@ private struct AirPlayPreparationView: View {
                 if model.isAirPlayControlReady {
                     Label("On iPhone, open Control Center → Screen Mirroring.", systemImage: "1.circle.fill")
                     Label("Choose \(model.airPlayReceiverName).", systemImage: "2.circle.fill")
-                    Label("Lumina will capture the receiver, return to the desktop, and open its device-sized control window automatically.", systemImage: "3.circle.fill")
+                    Label("Lumina will capture the receiver and place its device-sized control window above the AirPlay Space automatically.", systemImage: "3.circle.fill")
                 } else {
                     Label("Let Lumina finish connecting the XCTest control channel first.", systemImage: "1.circle.fill")
                     Label("Keep the iPhone paired by USB or developer Wi-Fi.", systemImage: "2.circle.fill")
@@ -311,7 +311,7 @@ private struct AirPlayPreparationView: View {
                     .foregroundStyle(.orange)
             }
 
-            Text("Apple's AirPlay receiver supplies video only. Lumina returns from its full-screen Space and routes every click and gesture in the device-sized window through the separate XCTest control channel.")
+            Text("Apple's AirPlay receiver supplies video only. Lumina places its device-sized controls above the system AirPlay Space and routes every click and gesture through the separate XCTest control channel.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

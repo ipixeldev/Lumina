@@ -11,6 +11,7 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
         let windowTitle: String?
         let width: Int
         let height: Int
+        let windowLayer: Int
         let isLikelyAirPlay: Bool
 
         var displayName: String {
@@ -27,7 +28,7 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
 
     var onFrame: (@Sendable (CGImage, Int) async -> Void)?
     var onStarted: (@Sendable (Int) async -> Void)?
-    var onStopped: (@Sendable (Int, String?) async -> Void)?
+    var onStopped: (@Sendable (Int, String?, Bool) async -> Void)?
 
     private let sampleQueue = DispatchQueue(label: "com.iPixeldev.Lumina.airplay-capture", qos: .userInteractive)
     private let imageContext = CIContext(options: [.cacheIntermediates: false])
@@ -70,7 +71,7 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
     }
 
     /// Returns a ranked, local-only snapshot of capturable on-screen windows.
-    /// AirPlayUIAgent, Control Center, and iPhone-like windows are placed first.
+    /// System AirPlay receiver and iPhone-like windows are placed first.
     @MainActor
     func availableMirroredWindows() async throws -> [WindowCandidate] {
         try Self.ensureScreenCapturePermission()
@@ -89,7 +90,7 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
 
     /// Watches for the full-screen window created by macOS AirPlay Receiver.
     /// This starts before the user mirrors so Lumina does not require a click
-    /// after AirPlayUIAgent has taken over the current Space.
+    /// after the system AirPlay receiver has taken over the current Space.
     @MainActor
     func waitForMirroredContent(timeout: Duration = .seconds(30)) {
         let request = beginSelectionRequest()
@@ -178,9 +179,9 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
-                    // AirPlayUIAgent can replace its window while entering the
-                    // full-screen Space. Treat enumeration failures during that
-                    // handoff as transient and keep watching until the deadline.
+                    // The system receiver can replace its window while entering
+                    // the full-screen Space. Treat enumeration failures during
+                    // that handoff as transient and keep watching.
                 }
                 try await Task.sleep(for: .milliseconds(500))
             }
@@ -229,6 +230,7 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
                     windowTitle: title,
                     width: Int(frame.width.rounded()),
                     height: Int(frame.height.rounded()),
+                    windowLayer: window.windowLayer,
                     isLikelyAirPlay: isLikelyAirPlay
                 ),
                 rank: rank
@@ -334,8 +336,21 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
     }
 
     @MainActor
-    private static func isAutomaticAirPlayWindow(_ candidate: WindowCandidate) -> Bool {
-        guard candidate.bundleIdentifier?.lowercased() == "com.apple.airplayuiagent" else {
+    static func isAutomaticAirPlayWindow(_ candidate: WindowCandidate) -> Bool {
+        let bundleIdentifier = candidate.bundleIdentifier?.lowercased()
+        let isSystemReceiver: Bool
+        switch bundleIdentifier {
+        case "com.apple.airplayuiagent":
+            isSystemReceiver = true
+        case "com.apple.controlcenter":
+            // Recent macOS releases host AirPlay mirroring inside Control
+            // Center. Layer 0 contains the mirrored screen; layer -1 is the
+            // full-screen black backing window.
+            isSystemReceiver = candidate.windowLayer == 0
+        default:
+            isSystemReceiver = false
+        }
+        guard isSystemReceiver else {
             return false
         }
 
@@ -374,7 +389,24 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
             return
         }
         guard let generation = invalidateInactiveCapture() else { return }
-        await onStopped?(generation, error?.localizedDescription)
+        let allowsAutomaticRecovery = Self.allowsAutomaticRecovery(after: error)
+        await onStopped?(generation, error?.localizedDescription, allowsAutomaticRecovery)
+    }
+
+    static func allowsAutomaticRecovery(after error: Error?) -> Bool {
+        guard let error else { return false }
+        if let issue = error as? CaptureIssue {
+            return issue != .screenRecordingPermission
+        }
+
+        let cocoaError = error as NSError
+        if cocoaError.domain == SCStreamErrorDomain {
+            // Retrying cannot fix a denied TCC request or a missing capture
+            // entitlement. Other stream failures can be caused by the system
+            // receiver replacing its window and are safe to recover from.
+            return cocoaError.code != -3_801 && cocoaError.code != -3_803
+        }
+        return true
     }
 
     private func activeCaptureGeneration() -> Int? {
@@ -428,7 +460,11 @@ nonisolated final class AirPlayCaptureService: NSObject, SCStreamOutput, SCStrea
             if let activeStream = takeActiveStream() {
                 try? await activeStream.stopCapture()
             }
-            await onStopped?(generation, error.localizedDescription)
+            await onStopped?(
+                generation,
+                error.localizedDescription,
+                Self.allowsAutomaticRecovery(after: error)
+            )
         }
     }
 
@@ -584,7 +620,14 @@ extension AirPlayCaptureService {
         }
         if let notificationGeneration {
             let message = error.localizedDescription
-            Task { await onStopped?(notificationGeneration, message) }
+            let allowsAutomaticRecovery = Self.allowsAutomaticRecovery(after: error)
+            Task {
+                await onStopped?(
+                    notificationGeneration,
+                    message,
+                    allowsAutomaticRecovery
+                )
+            }
         }
     }
 
@@ -657,7 +700,7 @@ private extension AirPlayCaptureService {
         let rank: Int
     }
 
-    enum CaptureIssue: LocalizedError {
+    enum CaptureIssue: LocalizedError, Equatable {
         case screenRecordingPermission
         case noWindows
         case windowUnavailable

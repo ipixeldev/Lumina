@@ -29,6 +29,7 @@ final class AutomationWorkspaceModel {
     private(set) var visualSource: VisualSource
     private(set) var hasSelectedVisualSource: Bool
     private(set) var isChoosingAirPlaySource = false
+    private(set) var hasPresentedAirPlayVideo = false
     @ObservationIgnored var onVisualChannelStarted: (@MainActor @Sendable (VisualSource) -> Void)?
     @ObservationIgnored var onVisualChannelStopped: (@MainActor @Sendable (VisualSource) -> Void)?
     @ObservationIgnored var onControlChannelStopped: (@MainActor @Sendable () -> Void)?
@@ -43,9 +44,11 @@ final class AutomationWorkspaceModel {
     private var endpoint: URL?
     private var frameTimes: [ContinuousClock.Instant] = []
     private var airPlaySelectionTask: Task<Void, Never>?
+    private var airPlayRecoveryTask: Task<Void, Never>?
     private var consecutiveControlTimeouts = 0
     private var controlHealthProbeTask: Task<Void, Never>?
     private var controlHealthProbeID: UUID?
+    private var controlHealthMonitorTask: Task<Void, Never>?
     @ObservationIgnored private let frameDecoder = DirectFrameDecoder()
     @ObservationIgnored private let airPlayCapture: AirPlayCaptureService
 
@@ -86,13 +89,15 @@ final class AutomationWorkspaceModel {
                       self.visualSource == .airPlay,
                       self.airPlayCapture.isActiveCapture(generation) else { return }
                 self.airPlaySelectionTask?.cancel()
+                self.airPlayRecoveryTask?.cancel()
+                self.airPlayRecoveryTask = nil
                 self.isChoosingAirPlaySource = false
                 self.isStreaming = true
                 self.issue = nil
                 self.onVisualChannelStarted?(.airPlay)
             }
         }
-        airPlayCapture.onStopped = { [weak self] generation, message in
+        airPlayCapture.onStopped = { [weak self] generation, message, allowsAutomaticRecovery in
             await MainActor.run {
                 guard let self,
                       self.visualSource == .airPlay,
@@ -104,6 +109,7 @@ final class AutomationWorkspaceModel {
                 self.framesPerSecond = 0
                 if let message { self.issue = "AirPlay capture stopped: \(message)" }
                 self.onVisualChannelStopped?(.airPlay)
+                if allowsAutomaticRecovery { self.scheduleAirPlayRecovery() }
             }
         }
     }
@@ -141,8 +147,13 @@ final class AutomationWorkspaceModel {
             directFrame = initialFrame
             resetControlHealthTracking()
             isConnected = true
+            startControlHealthMonitor(
+                connectionToken: connectionToken,
+                client: client,
+                session: session
+            )
             issue = nil
-            logger.info("Local iPhone control session connected", category: .automation)
+            logger.info("Local iPhone control session connected at \(endpoint.absoluteString)", category: .automation)
         } catch {
             if let createdSession { await client.deleteSession(createdSession) }
             if self.connectionToken == connectionToken { self.connectionToken = nil }
@@ -218,8 +229,11 @@ final class AutomationWorkspaceModel {
         isStreaming = false
         airPlaySelectionTask?.cancel()
         airPlaySelectionTask = nil
+        airPlayRecoveryTask?.cancel()
+        airPlayRecoveryTask = nil
         airPlayCapture.stop()
         airPlayFrame = nil
+        hasPresentedAirPlayVideo = false
         framesPerSecond = 0
         if stoppedSource == .airPlay, hadLiveVisualChannel {
             onVisualChannelStopped?(stoppedSource)
@@ -248,6 +262,8 @@ final class AutomationWorkspaceModel {
 
     func chooseAirPlaySource() {
         guard visualSource == .airPlay else { return }
+        airPlayRecoveryTask?.cancel()
+        airPlayRecoveryTask = nil
         isChoosingAirPlaySource = true
         issue = nil
         airPlayCapture.chooseMirroredContent()
@@ -262,12 +278,14 @@ final class AutomationWorkspaceModel {
 
     func waitForAirPlaySource() {
         guard visualSource == .airPlay, isControlReady else { return }
+        airPlayRecoveryTask?.cancel()
+        airPlayRecoveryTask = nil
         isChoosingAirPlaySource = true
         issue = nil
-        airPlayCapture.waitForMirroredContent(timeout: .seconds(30))
+        airPlayCapture.waitForMirroredContent(timeout: .seconds(300))
         airPlaySelectionTask?.cancel()
         airPlaySelectionTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(32))
+            try? await Task.sleep(for: .seconds(302))
             guard !Task.isCancelled, let self, self.isChoosingAirPlaySource else { return }
             self.isChoosingAirPlaySource = false
             self.issue = "No full-screen AirPlay window appeared. Start Screen Mirroring on the iPhone, choose this Mac, then retry or choose the window manually."
@@ -382,6 +400,8 @@ final class AutomationWorkspaceModel {
         if !preservingAirPlayCapture {
             airPlaySelectionTask?.cancel()
             airPlaySelectionTask = nil
+            airPlayRecoveryTask?.cancel()
+            airPlayRecoveryTask = nil
         }
         let connectedClient = client
         let connectedSession = session
@@ -390,6 +410,7 @@ final class AutomationWorkspaceModel {
         connectionToken = nil
         endpoint = nil
         isConnected = false
+        stopControlHealthMonitor()
         resetControlHealthTracking()
         airPlayCapture.setDeviceViewport(nil)
         if !preservingAirPlayCapture { isStreaming = false }
@@ -399,6 +420,7 @@ final class AutomationWorkspaceModel {
         directFrame = nil
         if !preservingAirPlayCapture {
             airPlayFrame = nil
+            hasPresentedAirPlayVideo = false
             framesPerSecond = 0
         }
     }
@@ -505,7 +527,42 @@ final class AutomationWorkspaceModel {
         consecutiveControlTimeouts = 0
     }
 
+    private func startControlHealthMonitor(
+        connectionToken: UUID,
+        client: any WebDriverAgentControlling,
+        session: AutomationSession
+    ) {
+        controlHealthMonitorTask?.cancel()
+        controlHealthMonitorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                    let state = try await client.deviceState(session: session)
+                    guard let self, self.connectionToken == connectionToken else { return }
+                    self.apply(state: state)
+                    self.clearControlIssueAfterSuccess()
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard let self, self.connectionToken == connectionToken else { return }
+                    self.handleControlFailure(
+                        error,
+                        connectionToken: connectionToken,
+                        logMessage: "iPhone control health monitor failed"
+                    )
+                    if self.connectionToken != connectionToken { return }
+                }
+            }
+        }
+    }
+
+    private func stopControlHealthMonitor() {
+        controlHealthMonitorTask?.cancel()
+        controlHealthMonitorTask = nil
+    }
+
     private func invalidateControlChannel() {
+        stopControlHealthMonitor()
         resetControlHealthTracking()
         client = nil
         session = nil
@@ -514,6 +571,23 @@ final class AutomationWorkspaceModel {
         isConnected = false
         airPlayCapture.setDeviceViewport(nil)
         onControlChannelStopped?()
+    }
+
+    private func scheduleAirPlayRecovery() {
+        guard visualSource == .airPlay, isControlReady else { return }
+        airPlayRecoveryTask?.cancel()
+        airPlayRecoveryTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(750))
+            guard !Task.isCancelled,
+                  let self,
+                  self.visualSource == .airPlay,
+                  self.isControlReady,
+                  !self.isStreaming else { return }
+            self.airPlayRecoveryTask = nil
+            self.isChoosingAirPlaySource = true
+            self.airPlayCapture.waitForMirroredContent(timeout: .seconds(300))
+            self.logger.info("Waiting for the AirPlay receiver window to return", category: .mirroring)
+        }
     }
 
     private static func isConfirmedControlLoss(_ error: Error) -> Bool {
@@ -545,6 +619,7 @@ final class AutomationWorkspaceModel {
 
     private func acceptAirPlay(frame: CGImage, at now: ContinuousClock.Instant) {
         airPlayFrame = frame
+        hasPresentedAirPlayVideo = true
         issue = nil
         recordFrame(at: now)
     }

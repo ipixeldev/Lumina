@@ -1,7 +1,28 @@
+import AppKit
 import SwiftUI
+
+@MainActor
+final class LuminaApplicationDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
+
+        let currentProcessIdentifier = ProcessInfo.processInfo.processIdentifier
+        let duplicateApplications = NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleIdentifier)
+            .filter { $0.processIdentifier != currentProcessIdentifier }
+
+        // Xcode can launch a new Debug product while an older build from a
+        // different DerivedData directory is still running. The newest launch
+        // owns the local AirPlay capture and XCTest session.
+        for application in duplicateApplications {
+            application.terminate()
+        }
+    }
+}
 
 @main
 struct LuminaApp: App {
+    @NSApplicationDelegateAdaptor(LuminaApplicationDelegate.self) private var applicationDelegate
     @State private var dependencies = DependencyContainer.live
 
     var body: some Scene {
@@ -57,6 +78,35 @@ private struct WindowRestorationController: NSViewRepresentable {
     }
 }
 
+enum DeviceWindowPresentationPolicy {
+    static func collectionBehavior(
+        for visualSource: VisualSource,
+        base: NSWindow.CollectionBehavior
+    ) -> NSWindow.CollectionBehavior {
+        guard visualSource == .airPlay else { return base }
+
+        var behavior = base
+        behavior.subtract([
+            .primary,
+            .auxiliary,
+            .moveToActiveSpace,
+            .managed,
+            .stationary,
+            .participatesInCycle,
+            .fullScreenPrimary,
+            .fullScreenNone
+        ])
+        behavior.formUnion([
+            .canJoinAllApplications,
+            .canJoinAllSpaces,
+            .transient,
+            .ignoresCycle,
+            .fullScreenAuxiliary
+        ])
+        return behavior
+    }
+}
+
 private struct DeviceWindowController: NSViewRepresentable {
     let visualSource: VisualSource
     let onWindowChanged: @MainActor (NSWindow?) -> Void
@@ -67,6 +117,7 @@ private struct DeviceWindowController: NSViewRepresentable {
         var baseCollectionBehavior: NSWindow.CollectionBehavior?
         var baseLevel: NSWindow.Level?
         var baseHidesOnDeactivate: Bool?
+        var baseCanHide: Bool?
     }
 
     final class WindowAttachmentView: NSView {
@@ -102,6 +153,7 @@ private struct DeviceWindowController: NSViewRepresentable {
                 coordinator.baseCollectionBehavior = nil
                 coordinator.baseLevel = nil
                 coordinator.baseHidesOnDeactivate = nil
+                coordinator.baseCanHide = nil
                 onWindowChanged(nil)
                 return
             }
@@ -116,22 +168,28 @@ private struct DeviceWindowController: NSViewRepresentable {
             coordinator.baseCollectionBehavior = window.collectionBehavior
             coordinator.baseLevel = window.level
             coordinator.baseHidesOnDeactivate = window.hidesOnDeactivate
+            coordinator.baseCanHide = window.canHide
         }
         guard isNewWindow || coordinator.configuredSource != visualSource else { return }
         coordinator.configuredSource = visualSource
 
         let baseBehavior = coordinator.baseCollectionBehavior ?? window.collectionBehavior
         if visualSource == .airPlay {
-            // Keep Lumina on its normal desktop Space. Activating this regular
-            // window moves the user away from AirPlayUIAgent's black full-screen
-            // Space while ScreenCaptureKit continues capturing that window.
-            window.collectionBehavior = baseBehavior
+            // Apple's receiver owns a separate full-screen Space. Lumina joins
+            // that Space as a device-sized interactive overlay while continuing
+            // to capture the receiver window through ScreenCaptureKit.
+            window.collectionBehavior = DeviceWindowPresentationPolicy.collectionBehavior(
+                for: visualSource,
+                base: baseBehavior
+            )
             window.level = .floating
             window.hidesOnDeactivate = false
+            window.canHide = false
         } else {
             window.collectionBehavior = baseBehavior
             window.level = coordinator.baseLevel ?? .normal
             window.hidesOnDeactivate = coordinator.baseHidesOnDeactivate ?? false
+            window.canHide = coordinator.baseCanHide ?? true
         }
         window.isRestorable = false
         onWindowChanged(window)
@@ -154,22 +212,24 @@ private struct DeviceControlSceneView: View {
         .background {
             DeviceWindowController(visualSource: dependencies.automationWorkspace.visualSource) { window in
                 deviceWindow = window
-                presentDeviceWindowIfReady()
+                updateDeviceWindowPresentation()
             }
         }
-        .onAppear(perform: validateSession)
-        .onChange(of: dependencies.automationWorkspace.isConnected) { _, isConnected in
-            if isConnected {
-                presentDeviceWindowIfReady()
-            } else {
-                validateSession()
-            }
+        .onAppear(perform: updateDeviceWindowPresentation)
+        .onChange(of: dependencies.automationWorkspace.visualSource) { _, _ in
+            updateDeviceWindowPresentation()
+        }
+        .onChange(of: dependencies.automationWorkspace.isConnected) { _, _ in
+            updateDeviceWindowPresentation()
         }
         .onChange(of: dependencies.automationWorkspace.hasLiveVisualChannel) { _, _ in
-            presentDeviceWindowIfReady()
+            updateDeviceWindowPresentation()
+        }
+        .onChange(of: dependencies.automationWorkspace.hasPresentedAirPlayVideo) { _, _ in
+            updateDeviceWindowPresentation()
         }
         .onChange(of: dependencies.stateMachine.state) { _, _ in
-            presentDeviceWindowIfReady()
+            updateDeviceWindowPresentation()
         }
         .onDisappear {
             presentationTask?.cancel()
@@ -179,52 +239,68 @@ private struct DeviceControlSceneView: View {
     private func presentDeviceWindowIfReady() {
         presentationTask?.cancel()
         guard let deviceWindow,
-              dependencies.stateMachine.state == .connected,
-              dependencies.automationWorkspace.isConnected,
-              dependencies.automationWorkspace.hasLiveVisualChannel else { return }
+              shouldPresentDeviceWindow else { return }
 
         presentationTask = Task { @MainActor in
-            // Start as a regular app so macOS switches from AirPlayUIAgent's
-            // full-screen Space back to Lumina's device-sized window.
-            NSApplication.shared.setActivationPolicy(.regular)
-            NSApplication.shared.activate(ignoringOtherApps: true)
+            for _ in 0..<80 {
+                guard !Task.isCancelled, shouldPresentDeviceWindow else { return }
 
-            for _ in 0..<20 {
-                guard !Task.isCancelled,
-                      dependencies.stateMachine.state == .connected,
-                      dependencies.automationWorkspace.isConnected,
-                      dependencies.automationWorkspace.hasLiveVisualChannel else {
-                    restoreSetupPresentation()
-                    return
+                if dependencies.automationWorkspace.visualSource == .airPlay {
+                    deviceWindow.orderFrontRegardless()
+                    deviceWindow.makeKey()
+                } else {
+                    NSRunningApplication.current.activate(options: [.activateAllWindows])
+                    deviceWindow.makeKeyAndOrderFront(nil)
                 }
 
-                deviceWindow.makeKeyAndOrderFront(nil)
-                if deviceWindow.isVisible, deviceWindow.isKeyWindow {
+                if deviceWindow.isVisible, deviceWindow.isOnActiveSpace {
                     dismissWindow(id: "main")
                     NSApplication.shared.setActivationPolicy(.accessory)
-                    deviceWindow.makeKeyAndOrderFront(nil)
+                    deviceWindow.orderFrontRegardless()
+                    deviceWindow.makeKey()
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(50))
             }
+        }
+    }
 
-            restoreSetupPresentation()
+    private var shouldPresentDeviceWindow: Bool {
+        let workspace = dependencies.automationWorkspace
+        if workspace.hasLiveVisualChannel {
+            return workspace.visualSource == .airPlay || workspace.isControlReady
+        }
+        // Once AirPlay video has appeared, keep Lumina's window available if
+        // the system receiver or XCTest channel drops. DeviceControlView then
+        // presents recovery actions instead of leaving only a black Space.
+        return workspace.visualSource == .airPlay && workspace.hasPresentedAirPlayVideo
+    }
+
+    private func updateDeviceWindowPresentation() {
+        if shouldPresentDeviceWindow {
+            presentDeviceWindowIfReady()
+            return
+        }
+
+        presentationTask?.cancel()
+        let workspace = dependencies.automationWorkspace
+        if workspace.visualSource == .airPlay, workspace.isControlReady {
+            // AppRootView creates this window before the user starts mirroring
+            // so its full-screen collection behavior is configured in advance.
+            deviceWindow?.orderOut(nil)
+            return
+        }
+
+        restoreSetupPresentation()
+        DispatchQueue.main.async {
+            dismissWindow(id: "device-control")
         }
     }
 
     private func restoreSetupPresentation() {
         NSApplication.shared.setActivationPolicy(.regular)
         openWindow(id: "main")
-        NSApplication.shared.activate(ignoringOtherApps: true)
-    }
-
-    private func validateSession() {
-        presentationTask?.cancel()
-        guard !dependencies.automationWorkspace.isConnected else { return }
-        restoreSetupPresentation()
-        DispatchQueue.main.async {
-            dismissWindow(id: "device-control")
-        }
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
     }
 }
 
@@ -236,13 +312,15 @@ private struct LuminaMenuBarView: View {
         Button("Open Lumina", systemImage: "macwindow") {
             NSApplication.shared.setActivationPolicy(.regular)
             openWindow(id: "main")
-            NSApplication.shared.activate(ignoringOtherApps: true)
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
         }
 
-        if dependencies.automationWorkspace.isConnected {
+        if dependencies.automationWorkspace.isConnected ||
+            dependencies.automationWorkspace.hasLiveVisualChannel ||
+            dependencies.automationWorkspace.hasPresentedAirPlayVideo {
             Button("Show iPhone", systemImage: "iphone") {
                 openWindow(id: "device-control")
-                NSApplication.shared.activate(ignoringOtherApps: true)
+                NSRunningApplication.current.activate(options: [.activateAllWindows])
             }
         }
 

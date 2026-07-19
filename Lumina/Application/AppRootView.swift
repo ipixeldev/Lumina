@@ -40,12 +40,24 @@ struct AppRootView: View {
         .onChange(of: dependencies.automationWorkspace.isConnected) { _, _ in
             scheduleDevicePresentation()
         }
+        .onChange(of: dependencies.automationWorkspace.isControlReady) { _, _ in
+            scheduleDevicePresentation()
+        }
+        .onAppear(perform: scheduleDevicePresentation)
     }
 
     private func scheduleDevicePresentation() {
-        guard dependencies.stateMachine.state == .connected,
-              dependencies.automationWorkspace.isConnected,
-              dependencies.automationWorkspace.hasLiveVisualChannel else { return }
+        let workspace = dependencies.automationWorkspace
+
+        if workspace.visualSource == .airPlay, workspace.isControlReady {
+            // Build and configure the device window before the system AirPlay
+            // receiver takes over the current Space. The scene remains ordered
+            // out until the first AirPlay frame is ready.
+            openWindow(id: "device-control")
+        }
+
+        guard workspace.hasLiveVisualChannel,
+              workspace.visualSource == .airPlay || workspace.isControlReady else { return }
 
         selection = .deviceControl
         openWindow(id: "device-control")

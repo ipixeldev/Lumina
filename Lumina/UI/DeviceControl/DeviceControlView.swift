@@ -10,7 +10,6 @@ struct DeviceControlView: View {
     var body: some View {
         Group {
             if model.visualSource == .airPlay,
-               model.isConnected,
                let screen = model.screenInfo?.screenSize,
                let frame = model.airPlayFrame {
                 deviceSurface(
@@ -18,6 +17,11 @@ struct DeviceControlView: View {
                     imageSize: CGSize(width: CGFloat(screen.width), height: CGFloat(screen.height)),
                     cropsToDeviceViewport: true
                 )
+                .overlay(alignment: .top) {
+                    if !model.isConnected {
+                        controlReconnectBanner
+                    }
+                }
             } else if model.visualSource == .direct,
                       model.isConnected,
                       let frame = model.directFrame {
@@ -35,7 +39,24 @@ struct DeviceControlView: View {
         .onAppear {
             if model.isConnected, model.visualSource == .direct { model.startStreaming() }
         }
-        .onDisappear { model.stopStreaming() }
+    }
+
+    private var controlReconnectBanner: some View {
+        HStack(spacing: 10) {
+            Label("iPhone control disconnected", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption.weight(.semibold))
+            Spacer(minLength: 8)
+            if isReconnecting {
+                ProgressView().controlSize(.small)
+            } else {
+                Button("Reconnect", action: reconnect)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+        }
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(12)
     }
 
     private func deviceSurface(

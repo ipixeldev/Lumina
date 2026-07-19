@@ -198,8 +198,8 @@ To use AirPlay video:
 2. Keep the Mac and iPhone on the same Wi-Fi network.
 3. Select the **AirPlay** card in Lumina. Lumina performs a local Bonjour preflight, displays the exact Mac receiver name, and prepares the XCTest control channel first. Keep the iPhone unlocked during this step.
 4. Wait until the AirPlay card reports **Control ready** or **Watching for iPhone**.
-5. On the iPhone, open Control Center, choose **Screen Mirroring**, and select that Mac name. Apple's black full-screen receiver appears briefly because it is the system video source, not the interactive Lumina window.
-6. Lumina watches for the exact full-screen `AirPlayUIAgent` window, captures it, center-crops the phone image, switches back to the desktop, and opens its own floating device-sized window. Use **Choose Window Manually** only if automatic detection times out.
+5. On the iPhone, open Control Center, choose **Screen Mirroring**, and select that Mac name. Apple's full-screen receiver is the system video source; Lumina places its interactive device window above it.
+6. Lumina automatically finds the mirrored system window, captures and center-crops the phone image, then shows its floating device-sized controls in the same Space. Use **Choose Window Manually** only if automatic detection times out.
 7. Approve Screen Recording permission if macOS requests it. macOS may require Lumina to be restarted after the first approval.
 8. Setup Assistant hides only after XCTest control and a real AirPlay frame are both active. Clicks, drags, Home, rotation, and volume actions are then sent through WebDriverAgent—not to Apple's view-only AirPlay surface.
 

@@ -95,6 +95,7 @@ final class ApplicationStateMachine {
              (.connected, .temporarilyDisconnected),
              (.connected, .deviceLocked),
              (.connected, .runnerCrashed),
+             (.temporarilyDisconnected, .connected),
              (.temporarilyDisconnected, .reconnecting),
              (.deviceLocked, .reconnecting),
              (.runnerCrashed, .reconnecting),

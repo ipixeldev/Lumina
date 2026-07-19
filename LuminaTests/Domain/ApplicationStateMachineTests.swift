@@ -117,6 +117,15 @@ struct ApplicationStateMachineTests {
 
         #expect(machine.state == .connected)
     }
+
+    @Test("A live visual channel can confirm a healthy control session after transient discovery loss")
+    func airPlayFrameRecoversTransientDiscoveryLoss() throws {
+        let machine = ApplicationStateMachine(initialState: .temporarilyDisconnected, logger: TestLogger())
+
+        try machine.transition(to: .connected)
+
+        #expect(machine.state == .connected)
+    }
 }
 
 private struct TestLogger: StructuredLogging {
