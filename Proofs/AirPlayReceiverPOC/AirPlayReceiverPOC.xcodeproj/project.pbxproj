@@ -1,0 +1,479 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1DD15E85B718542FAE72DAD6200E74D3 /* AirPlayTXTRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01CFCA092A235A2205A96B1E695D798B /* AirPlayTXTRecord.swift */; };
+		2F027932964438C9B99B9CC8D877765E /* AirPlayTXTRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2FAC1419670D644CBE157D3B690FBF /* AirPlayTXTRecordTests.swift */; };
+		406AB25582E835F41F8B266D448D9115 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 603F6AAFA18F7823FD44A4E587EC129C /* ContentView.swift */; };
+		53D23D47C6EDB353E0802C93F3AC49F9 /* ReceiverPOCModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4604847B91104D5BEAF8F311579C6851 /* ReceiverPOCModel.swift */; };
+		75CC82FEC42A8ADEB0B779CBDB8BA552 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1E8EEC5E5A0D25268841B7F85DF73BF5 /* Cocoa.framework */; };
+		A463C2E69767ADFA56E061136F0EC058 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1E8EEC5E5A0D25268841B7F85DF73BF5 /* Cocoa.framework */; };
+		B8E2608D4CCD76D67A880E6C44A84E7B /* BonjourServicePublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C62510D5503EA5C1FC19768E10AA119F /* BonjourServicePublisher.swift */; };
+		BB2D5B656E802239ACCBAD6F469C7B50 /* LocalPeerPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A97411E39A37EE26C82843D845FE617 /* LocalPeerPolicy.swift */; };
+		F70748F624D0FBF1CA86C30400DBFC8C /* AirPlayReceiverPOCApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 085727C5F1BCD3AE83ED11AD6483281B /* AirPlayReceiverPOCApp.swift */; };
+		FCD9B357A0A6E02BA6988E03FCC15A07 /* ReceiverIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A82AA14E9CBA2C22F118D63BEA33571 /* ReceiverIdentity.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		DD4A1455542EEE75E524174ACA046E5E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5F73F1E47D751BF2B835EF90BDA69CEA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A07FAE36E16F7B693BEC6044E77A19D5;
+			remoteInfo = AirPlayReceiverPOC;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		01CFCA092A235A2205A96B1E695D798B /* AirPlayTXTRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AirPlayTXTRecord.swift; path = Discovery/AirPlayTXTRecord.swift; sourceTree = "<group>"; };
+		029A3A9810B4D269D9213BF5F57BBD4C /* AirPlayReceiverPOC.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AirPlayReceiverPOC.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		085727C5F1BCD3AE83ED11AD6483281B /* AirPlayReceiverPOCApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AirPlayReceiverPOCApp.swift; path = Application/AirPlayReceiverPOCApp.swift; sourceTree = "<group>"; };
+		1E8EEC5E5A0D25268841B7F85DF73BF5 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		3B3CA9724F47543941AA98A5A7A7D9D1 /* Signing.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = Signing.xcconfig; path = ../../Configuration/Signing.xcconfig; sourceTree = "<group>"; };
+		4604847B91104D5BEAF8F311579C6851 /* ReceiverPOCModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ReceiverPOCModel.swift; path = Application/ReceiverPOCModel.swift; sourceTree = "<group>"; };
+		603F6AAFA18F7823FD44A4E587EC129C /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ContentView.swift; path = Application/ContentView.swift; sourceTree = "<group>"; };
+		6A82AA14E9CBA2C22F118D63BEA33571 /* ReceiverIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ReceiverIdentity.swift; path = Identity/ReceiverIdentity.swift; sourceTree = "<group>"; };
+		6A97411E39A37EE26C82843D845FE617 /* LocalPeerPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LocalPeerPolicy.swift; path = Discovery/LocalPeerPolicy.swift; sourceTree = "<group>"; };
+		8CF623AA4A5B2335FCC4CEB8AE13EF74 /* AirPlayReceiverPOCTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AirPlayReceiverPOCTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C62510D5503EA5C1FC19768E10AA119F /* BonjourServicePublisher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BonjourServicePublisher.swift; path = Discovery/BonjourServicePublisher.swift; sourceTree = "<group>"; };
+		CC2FAC1419670D644CBE157D3B690FBF /* AirPlayTXTRecordTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AirPlayTXTRecordTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		3C8A24F53AB0AB1FBFB427B477491683 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				75CC82FEC42A8ADEB0B779CBDB8BA552 /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5AD1F011BA8B890835079033B518AF3B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A463C2E69767ADFA56E061136F0EC058 /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		553B1EDF9039ABCDB68B37690FE0CC85 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				029A3A9810B4D269D9213BF5F57BBD4C /* AirPlayReceiverPOC.app */,
+				8CF623AA4A5B2335FCC4CEB8AE13EF74 /* AirPlayReceiverPOCTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		708E4888FDDE05B8A5E68A70F2440729 /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				1E8EEC5E5A0D25268841B7F85DF73BF5 /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
+		70D9A004A99D0E50F2BCA5DD114A098C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				708E4888FDDE05B8A5E68A70F2440729 /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		76758B00A3F5DBE7E924C441DCCB7FEC /* Configuration */ = {
+			isa = PBXGroup;
+			children = (
+				3B3CA9724F47543941AA98A5A7A7D9D1 /* Signing.xcconfig */,
+			);
+			name = Configuration;
+			sourceTree = "<group>";
+		};
+		95104535A7F308A2334AF015B962AC26 = {
+			isa = PBXGroup;
+			children = (
+				553B1EDF9039ABCDB68B37690FE0CC85 /* Products */,
+				70D9A004A99D0E50F2BCA5DD114A098C /* Frameworks */,
+				A9D31032232CEA2CE71390C72C5977A1 /* AirPlayReceiverPOC */,
+				B6069E3BC248A7854BCADFEB1B566395 /* AirPlayReceiverPOCTests */,
+				76758B00A3F5DBE7E924C441DCCB7FEC /* Configuration */,
+			);
+			sourceTree = "<group>";
+		};
+		A9D31032232CEA2CE71390C72C5977A1 /* AirPlayReceiverPOC */ = {
+			isa = PBXGroup;
+			children = (
+				085727C5F1BCD3AE83ED11AD6483281B /* AirPlayReceiverPOCApp.swift */,
+				603F6AAFA18F7823FD44A4E587EC129C /* ContentView.swift */,
+				4604847B91104D5BEAF8F311579C6851 /* ReceiverPOCModel.swift */,
+				01CFCA092A235A2205A96B1E695D798B /* AirPlayTXTRecord.swift */,
+				C62510D5503EA5C1FC19768E10AA119F /* BonjourServicePublisher.swift */,
+				6A97411E39A37EE26C82843D845FE617 /* LocalPeerPolicy.swift */,
+				6A82AA14E9CBA2C22F118D63BEA33571 /* ReceiverIdentity.swift */,
+			);
+			name = AirPlayReceiverPOC;
+			path = AirPlayReceiverPOC;
+			sourceTree = "<group>";
+		};
+		B6069E3BC248A7854BCADFEB1B566395 /* AirPlayReceiverPOCTests */ = {
+			isa = PBXGroup;
+			children = (
+				CC2FAC1419670D644CBE157D3B690FBF /* AirPlayTXTRecordTests.swift */,
+			);
+			name = AirPlayReceiverPOCTests;
+			path = AirPlayReceiverPOCTests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A07FAE36E16F7B693BEC6044E77A19D5 /* AirPlayReceiverPOC */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 41B448DD5BC330E75E2DC28C26408917 /* Build configuration list for PBXNativeTarget "AirPlayReceiverPOC" */;
+			buildPhases = (
+				DF21B69641E32B0F599A838589268CE2 /* Sources */,
+				5AD1F011BA8B890835079033B518AF3B /* Frameworks */,
+				B6BFA2CF3D72EA7A05BC21A2F2E0C87D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AirPlayReceiverPOC;
+			productName = AirPlayReceiverPOC;
+			productReference = 029A3A9810B4D269D9213BF5F57BBD4C /* AirPlayReceiverPOC.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B4B17D3FAA24A0107528FC2B0407A7FD /* AirPlayReceiverPOCTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C6BFED04D47AD41FC7972ECDE6392566 /* Build configuration list for PBXNativeTarget "AirPlayReceiverPOCTests" */;
+			buildPhases = (
+				A9D5C5DA53EAE8BBC992FFD19298EA68 /* Sources */,
+				3C8A24F53AB0AB1FBFB427B477491683 /* Frameworks */,
+				D15922D8B772B27FB499D364044B3463 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8F1BF412FA05F35136FC03532D835EDE /* PBXTargetDependency */,
+			);
+			name = AirPlayReceiverPOCTests;
+			productName = AirPlayReceiverPOCTests;
+			productReference = 8CF623AA4A5B2335FCC4CEB8AE13EF74 /* AirPlayReceiverPOCTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		5F73F1E47D751BF2B835EF90BDA69CEA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastSwiftUpdateCheck = 2610;
+				LastUpgradeCheck = 2610;
+			};
+			buildConfigurationList = B85B8CBD197E8AD8C27968A4D2D0A61A /* Build configuration list for PBXProject "AirPlayReceiverPOC" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 95104535A7F308A2334AF015B962AC26;
+			minimizedProjectReferenceProxies = 0;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 553B1EDF9039ABCDB68B37690FE0CC85 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A07FAE36E16F7B693BEC6044E77A19D5 /* AirPlayReceiverPOC */,
+				B4B17D3FAA24A0107528FC2B0407A7FD /* AirPlayReceiverPOCTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B6BFA2CF3D72EA7A05BC21A2F2E0C87D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D15922D8B772B27FB499D364044B3463 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A9D5C5DA53EAE8BBC992FFD19298EA68 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2F027932964438C9B99B9CC8D877765E /* AirPlayTXTRecordTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DF21B69641E32B0F599A838589268CE2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F70748F624D0FBF1CA86C30400DBFC8C /* AirPlayReceiverPOCApp.swift in Sources */,
+				406AB25582E835F41F8B266D448D9115 /* ContentView.swift in Sources */,
+				53D23D47C6EDB353E0802C93F3AC49F9 /* ReceiverPOCModel.swift in Sources */,
+				1DD15E85B718542FAE72DAD6200E74D3 /* AirPlayTXTRecord.swift in Sources */,
+				B8E2608D4CCD76D67A880E6C44A84E7B /* BonjourServicePublisher.swift in Sources */,
+				BB2D5B656E802239ACCBAD6F469C7B50 /* LocalPeerPolicy.swift in Sources */,
+				FCD9B357A0A6E02BA6988E03FCC15A07 /* ReceiverIdentity.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8F1BF412FA05F35136FC03532D835EDE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = AirPlayReceiverPOC;
+			target = A07FAE36E16F7B693BEC6044E77A19D5 /* AirPlayReceiverPOC */;
+			targetProxy = DD4A1455542EEE75E524174ACA046E5E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		07A877561910EF77FF906F41416465B8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		6478CB0D64F66260B1D810D0BFA6BD6E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3B3CA9724F47543941AA98A5A7A7D9D1 /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = AirPlayReceiverPOC/AirPlayReceiverPOC.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AirPlayReceiverPOC/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ipixeldev.Lumina.AirPlayReceiverPOC;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		6B908627AB745EA9551E2B2556FBD245 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3B3CA9724F47543941AA98A5A7A7D9D1 /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = AirPlayReceiverPOC/AirPlayReceiverPOC.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AirPlayReceiverPOC/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ipixeldev.Lumina.AirPlayReceiverPOC;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		8A80CB837A3D4B6B8F6DCEECB25F5A98 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3B3CA9724F47543941AA98A5A7A7D9D1 /* Signing.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ipixeldev.Lumina.AirPlayReceiverPOCTests;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AirPlayReceiverPOC.app/Contents/MacOS/AirPlayReceiverPOC";
+			};
+			name = Debug;
+		};
+		D8A13B69BAA290B4E90AB3380D3F9F98 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3B3CA9724F47543941AA98A5A7A7D9D1 /* Signing.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ipixeldev.Lumina.AirPlayReceiverPOCTests;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AirPlayReceiverPOC.app/Contents/MacOS/AirPlayReceiverPOC";
+			};
+			name = Release;
+		};
+		E36E933D0E0BF519BB5B2A770BF27967 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		41B448DD5BC330E75E2DC28C26408917 /* Build configuration list for PBXNativeTarget "AirPlayReceiverPOC" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6B908627AB745EA9551E2B2556FBD245 /* Release */,
+				6478CB0D64F66260B1D810D0BFA6BD6E /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B85B8CBD197E8AD8C27968A4D2D0A61A /* Build configuration list for PBXProject "AirPlayReceiverPOC" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E36E933D0E0BF519BB5B2A770BF27967 /* Debug */,
+				07A877561910EF77FF906F41416465B8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C6BFED04D47AD41FC7972ECDE6392566 /* Build configuration list for PBXNativeTarget "AirPlayReceiverPOCTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D8A13B69BAA290B4E90AB3380D3F9F98 /* Release */,
+				8A80CB837A3D4B6B8F6DCEECB25F5A98 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 5F73F1E47D751BF2B835EF90BDA69CEA /* Project object */;
+}
